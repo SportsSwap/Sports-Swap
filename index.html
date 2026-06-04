@@ -342,7 +342,6 @@ function av(s){return AVATARS[avMap[s]||0];}
 let saved=new Set(), activeSport='all', activeSub='all', sortBy='recent', nextId=100;
 let conversations={}, activeChatId=null;
 let pendingPhoto=null;
-let sportClicks={};
 
 let listings=[
   {id:1,sport:'football',sub:'Boots',title:'Nike Mercurial Vapor boots',price:85,cond:'good',loc:'Sydney',desc:'Size 10 UK. Used one season, good condition. Firm ground studs.',seller:'JR',bg:'#EAF3DE',emoji:'⚽'},
@@ -381,12 +380,16 @@ function condBadge(c){
 
 function buildNav(){
   const all=SPORTS[0];
-  const rest=[...SPORTS.slice(1)].sort((a,b)=>(sportClicks[b.id]||0)-(sportClicks[a.id]||0));
+  const rest=[...SPORTS.slice(1)].sort((a,b)=>{
+    const countA=listings.filter(l=>l.sport===a.id).length;
+    const countB=listings.filter(l=>l.sport===b.id).length;
+    return countB-countA;
+  });
   const sorted=[all,...rest];
   document.getElementById('sportNav').innerHTML=sorted.map(s=>{
-    const clicks=sportClicks[s.id]||0;
-    const hotBadge=clicks>0?`<span style="font-size:10px;background:var(--green-light);color:var(--green-text);border-radius:20px;padding:1px 6px;margin-left:3px">${clicks}</span>`:'';
-    return`<button class="sport-tab${s.id===activeSport?' active':''}" onclick="setSport('${s.id}')"><i class="ti ${s.icon}"></i>${s.label}${hotBadge}</button>`;
+    const count=s.id==='all'?listings.length:listings.filter(l=>l.sport===s.id).length;
+    const badge=count>0?`<span style="font-size:10px;background:var(--green-light);color:var(--green-text);border-radius:20px;padding:1px 6px;margin-left:3px">${count}</span>`:'';
+    return`<button class="sport-tab${s.id===activeSport?' active':''}" onclick="setSport('${s.id}')"><i class="ti ${s.icon}"></i>${s.label}${badge}</button>`;
   }).join('');
 }
 function buildSubCats(){
@@ -399,7 +402,6 @@ function buildSubCats(){
 }
 function setSport(id){
   activeSport=id; activeSub='all';
-  if(id!=='all') sportClicks[id]=(sportClicks[id]||0)+1;
   buildNav(); buildSubCats(); render();
 }
 function setSub(s,el){
