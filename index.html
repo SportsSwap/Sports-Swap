@@ -341,6 +341,7 @@ function av(s){return AVATARS[avMap[s]||0];}
 let saved=new Set(), activeSport='all', activeSub='all', sortBy='recent', nextId=100;
 let conversations={}, activeChatId=null;
 let pendingPhoto=null;
+let sportClicks={};
 
 let listings=[
   {id:1,sport:'football',sub:'Boots',title:'Nike Mercurial Vapor boots',price:85,cond:'good',loc:'Sydney',desc:'Size 10 UK. Used one season, good condition. Firm ground studs.',seller:'JR',bg:'#EAF3DE',emoji:'⚽'},
@@ -378,9 +379,14 @@ function condBadge(c){
 }
 
 function buildNav(){
-  document.getElementById('sportNav').innerHTML=SPORTS.map(s=>
-    `<button class="sport-tab${s.id===activeSport?' active':''}" onclick="setSport('${s.id}',this)"><i class="ti ${s.icon}"></i>${s.label}</button>`
-  ).join('');
+  const all=SPORTS[0];
+  const rest=[...SPORTS.slice(1)].sort((a,b)=>(sportClicks[b.id]||0)-(sportClicks[a.id]||0));
+  const sorted=[all,...rest];
+  document.getElementById('sportNav').innerHTML=sorted.map(s=>{
+    const clicks=sportClicks[s.id]||0;
+    const hotBadge=clicks>0?`<span style="font-size:10px;background:var(--green-light);color:var(--green-text);border-radius:20px;padding:1px 6px;margin-left:3px">${clicks}</span>`:'';
+    return`<button class="sport-tab${s.id===activeSport?' active':''}" onclick="setSport('${s.id}')"><i class="ti ${s.icon}"></i>${s.label}${hotBadge}</button>`;
+  }).join('');
 }
 function buildSubCats(){
   const sc=document.getElementById('subCats');
@@ -390,10 +396,10 @@ function buildSubCats(){
   sc.innerHTML='<div class="sub-pill'+(activeSub==='all'?' active':'')+'" onclick="setSub(\'all\',this)">All</div>'+
     sport.subs.map(s=>`<div class="sub-pill${activeSub===s?' active':''}" onclick="setSub('${s}',this)">${s}</div>`).join('');
 }
-function setSport(id,el){
+function setSport(id){
   activeSport=id; activeSub='all';
-  document.querySelectorAll('.sport-tab').forEach(t=>t.classList.remove('active'));
-  el.classList.add('active'); buildSubCats(); render();
+  if(id!=='all') sportClicks[id]=(sportClicks[id]||0)+1;
+  buildNav(); buildSubCats(); render();
 }
 function setSub(s,el){
   activeSub=s;
