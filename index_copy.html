@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SportsSwap — Buy & Sell Sports Gear</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/tabler-icons.min.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f4;
+    --bg3: #eeece8;
+    --text: #1a1a18;
+    --text2: #6b6b68;
+    --text3: #9b9b97;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --green: #C8961E;
+    --green-dark: #9A6E12;
+    --green-light: #FBF1D6;
+    --green-text: #8A6410;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --gold: #C8961E;
+    --gold-light: #E3B948;
+    --gold-dark: #9A6E12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a;
+      --bg2: #252523;
+      --bg3: #2e2e2b;
+      --text: #f0ede8;
+      --text2: #a0a09a;
+      --text3: #6a6a65;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+      --green-light: #2e2410;
+      --green-text: #E3B948;
+    }
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg3); color: var(--text); min-height: 100vh; }
+  a { color: inherit; text-decoration: none; }
+  input, select, textarea, button { font-family: inherit; }
+
+  .app-shell { max-width: 1100px; margin: 0 auto; padding: 0 16px 40px; }
+
+  header { background: var(--bg); border-bottom: 0.5px solid var(--border); position: sticky; top: 0; z-index: 50; }
+  .header-inner { max-width: 1100px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; gap: 12px; height: 56px; }
+  .logo { display: flex; align-items: center; gap: 8px; font-size: 19px; font-weight: 600; color: var(--gold); letter-spacing: -0.4px; white-space: nowrap; }
+  .logo i { font-size: 22px; color: var(--gold); }
+  .search-wrap { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--bg2); border: 0.5px solid var(--border); border-radius: 22px; padding: 7px 15px; }
+  .search-wrap i { color: var(--text2); font-size: 16px; }
+  .search-wrap input { border: none; background: transparent; font-size: 14px; color: var(--text); outline: none; flex: 1; }
+  .search-wrap input::placeholder { color: var(--text3); }
+  .hbtns { display: flex; gap: 8px; }
+  .inbox-btn { position: relative; background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 7px 11px; font-size: 13px; cursor: pointer; color: var(--text); display: flex; align-items: center; gap: 5px; transition: background .15s; }
+  .inbox-btn:hover { background: var(--bg3); }
+  .badge { position: absolute; top: -4px; right: -4px; background: var(--green); color: white; font-size: 10px; font-weight: 600; width: 16px; height: 16px; border-radius: 50%; display: none; align-items: center; justify-content: center; }
+  .sell-btn { background: var(--green); color: white; border: none; border-radius: var(--radius); padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s; }
+  .sell-btn:hover { background: var(--green-dark); }
+
+  .sport-nav-wrap { background: var(--bg); border-bottom: 0.5px solid var(--border); position: sticky; top: 56px; z-index: 40; }
+  .sport-nav { max-width: 1100px; margin: 0 auto; padding: 0 16px; display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; }
+  .sport-nav::-webkit-scrollbar { display: none; }
+  .sport-tab { padding: 10px 13px; font-size: 13px; color: var(--text2); cursor: pointer; white-space: nowrap; border: none; border-bottom: 2px solid transparent; background: none; transition: all .15s; display: flex; align-items: center; gap: 5px; }
+  .sport-tab:hover { color: var(--text); }
+  .sport-tab.active { color: var(--gold); border-bottom-color: var(--gold); font-weight: 500; }
+
+  .content { padding-top: 20px; }
+  .sub-cats { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 16px; }
+  .sub-pill { background: var(--bg); border: 0.5px solid var(--border); border-radius: 20px; padding: 5px 13px; font-size: 12px; color: var(--text2); cursor: pointer; transition: all .15s; }
+  .sub-pill:hover, .sub-pill.active { background: #FBF1D6; color: var(--gold-dark); border-color: var(--gold); }
+
+  .sort-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .count { font-size: 13px; color: var(--text2); }
+  .sort-sel { font-size: 13px; border: 0.5px solid var(--border); border-radius: var(--radius); padding: 5px 9px; background: var(--bg); color: var(--text); cursor: pointer; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  .card { background: var(--bg); border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; cursor: pointer; transition: border-color .15s, transform .1s; }
+  .card:hover { border-color: var(--green); transform: translateY(-2px); }
+  .card-img { width: 100%; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center; font-size: 48px; position: relative; }
+  .cond-badge { position: absolute; top: 8px; left: 8px; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 20px; }
+  .c-new { background: #EAF3DE; color: #27500A; }
+  .c-like { background: #E6F1FB; color: #0C447C; }
+  .c-used { background: #FAEEDA; color: #633806; }
+  .hrt { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.9); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px; color: var(--text2); transition: color .15s; }
+  .hrt.on { color: #D4537E; }
+  .card-body { padding: 10px 13px 13px; }
+  .card-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-sport { font-size: 11px; color: var(--text2); margin-bottom: 7px; }
+  .card-price { font-size: 18px; font-weight: 600; color: var(--green); margin-bottom: 7px; }
+  .card-footer { display: flex; align-items: center; justify-content: space-between; }
+  .av { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 500; flex-shrink: 0; }
+  .av-g { background: #EAF3DE; color: #27500A; }
+  .av-b { background: #E6F1FB; color: #0C447C; }
+  .av-c { background: #FAECE7; color: #712B13; }
+  .av-p { background: #EEEDFE; color: #3C3489; }
+  .av-a { background: #FAEEDA; color: #633806; }
+  .sname { font-size: 11px; color: var(--text2); margin-left: 4px; }
+  .loc-tag { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 2px; }
+  .msg-btn { display: block; width: 100%; margin-top: 9px; background: var(--green-light); color: var(--green-text); border: 0.5px solid var(--gold-light); border-radius: var(--radius); padding: 7px 0; font-size: 13px; font-weight: 500; cursor: pointer; text-align: center; transition: background .15s; }
+  .msg-btn:hover { background: #F2E2B0; }
+  .empty { grid-column: 1/-1; text-align: center; padding: 4rem 0; color: var(--text2); }
+  .empty i { font-size: 40px; display: block; margin-bottom: 12px; }
+
+  /* Overlay */
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; align-items: center; justify-content: center; padding: 16px; }
+  .overlay.open { display: flex; }
+
+  /* Detail modal */
+  .det-modal { background: var(--bg); border-radius: var(--radius-lg); border: 0.5px solid var(--border); padding: 20px; width: 100%; max-width: 440px; max-height: 90vh; overflow-y: auto; }
+  .det-img { width: 100%; aspect-ratio: 3/2; display: flex; align-items: center; justify-content: center; font-size: 80px; background: var(--bg2); border-radius: var(--radius); margin-bottom: 14px; }
+  .det-price { font-size: 28px; font-weight: 600; color: var(--green); }
+  .det-title { font-size: 18px; font-weight: 500; margin-bottom: 6px; }
+  .det-tags { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tag { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--bg2); color: var(--text2); }
+  .det-desc { font-size: 13px; color: var(--text2); line-height: 1.6; margin: 10px 0 14px; }
+  .det-seller { display: flex; align-items: center; gap: 10px; padding: 11px; background: var(--bg2); border-radius: var(--radius); margin-bottom: 14px; }
+  .sinfo .sn { font-weight: 500; font-size: 14px; color: var(--text); }
+  .sinfo .sr { font-size: 12px; color: var(--text2); }
+  .cbtn { width: 100%; padding: 11px; background: var(--green); color: white; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; margin-bottom: 8px; transition: background .15s; }
+  .cbtn:hover { background: var(--green-dark); }
+  .obtn { width: 100%; padding: 11px; background: transparent; color: var(--text); border: 0.5px solid var(--border2); border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s; }
+  .obtn:hover { background: var(--bg2); }
+
+  /* Post modal */
+  .post-modal { background: var(--bg); border-radius: var(--radius-lg); border: 0.5px solid var(--border); padding: 22px; width: 100%; max-width: 440px; max-height: 90vh; overflow-y: auto; }
+  .post-modal h2 { font-size: 17px; font-weight: 600; margin-bottom: 16px; }
+  .post-modal label { font-size: 12px; color: var(--text2); display: block; margin: 12px 0 4px; }
+  .post-modal input, .post-modal select, .post-modal textarea { width: 100%; border: 0.5px solid var(--border2); border-radius: var(--radius); padding: 8px 12px; font-size: 14px; background: var(--bg); color: var(--text); outline: none; transition: border-color .15s; }
+  .post-modal input:focus, .post-modal select:focus, .post-modal textarea:focus { border-color: var(--green); }
+  .post-modal textarea { height: 72px; resize: vertical; }
+  .mrow { display: flex; gap: 10px; }
+  .mrow > div { flex: 1; }
+  .mactions { display: flex; gap: 10px; margin-top: 16px; }
+  .bcx { flex: 1; padding: 9px; border-radius: var(--radius); border: 0.5px solid var(--border2); background: transparent; font-size: 14px; cursor: pointer; color: var(--text); transition: background .15s; }
+  .bcx:hover { background: var(--bg2); }
+  .bpost { flex: 2; padding: 9px; border-radius: var(--radius); background: var(--green); border: none; color: white; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s; }
+  .bpost:hover { background: var(--green-dark); }
+
+  /* Chat */
+  .chat-modal { background: var(--bg); border-radius: var(--radius-lg); border: 0.5px solid var(--border); width: 100%; max-width: 420px; display: flex; flex-direction: column; height: 540px; }
+  .chat-header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 0.5px solid var(--border); }
+  .chat-back { background: none; border: none; cursor: pointer; color: var(--text2); font-size: 20px; padding: 0; display: flex; }
+  .chat-item-info { flex: 1; min-width: 0; }
+  .chat-item-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .chat-seller-name { font-size: 12px; color: var(--text2); }
+  .chat-item-price { font-size: 15px; font-weight: 600; color: var(--green); white-space: nowrap; }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .msg-row { display: flex; gap: 8px; align-items: flex-end; }
+  .msg-row.mine { flex-direction: row-reverse; }
+  .bubble { max-width: 72%; padding: 9px 13px; font-size: 13px; line-height: 1.5; color: var(--text); }
+  .bubble.theirs { background: var(--bg2); border-radius: 12px 12px 12px 2px; }
+  .bubble.mine { background: var(--green-light); color: var(--green-text); border-radius: 12px 12px 2px 12px; }
+  .msg-time { font-size: 10px; color: var(--text3); margin-top: 3px; }
+  .quick-msgs { display: flex; gap: 6px; padding: 0 14px 10px; flex-wrap: wrap; }
+  .qm { font-size: 12px; padding: 4px 11px; border-radius: 20px; background: var(--bg2); border: 0.5px solid var(--border); cursor: pointer; color: var(--text2); transition: all .15s; }
+  .qm:hover { background: var(--green-light); color: var(--green-text); border-color: var(--green); }
+  .chat-input-row { display: flex; gap: 8px; padding: 12px 16px; border-top: 0.5px solid var(--border); align-items: flex-end; }
+  .chat-input { flex: 1; border: 0.5px solid var(--border2); border-radius: 20px; padding: 8px 14px; font-size: 14px; color: var(--text); background: var(--bg); outline: none; resize: none; max-height: 80px; overflow-y: auto; transition: border-color .15s; }
+  .chat-input:focus { border-color: var(--green); }
+  .send-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--green); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px; flex-shrink: 0; transition: background .15s; }
+  .send-btn:hover { background: var(--green-dark); }
+
+  /* Inbox */
+  .inbox-modal { background: var(--bg); border-radius: var(--radius-lg); border: 0.5px solid var(--border); width: 100%; max-width: 400px; max-height: 80vh; overflow-y: auto; }
+  .inbox-header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 0.5px solid var(--border); }
+  .inbox-header h2 { font-size: 16px; font-weight: 600; }
+  .inbox-empty { text-align: center; padding: 3rem 1rem; color: var(--text2); }
+  .inbox-empty i { font-size: 34px; display: block; margin-bottom: 10px; }
+  .convo-row { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-bottom: 0.5px solid var(--border); cursor: pointer; transition: background .1s; }
+  .convo-row:hover { background: var(--bg2); }
+  .convo-info { flex: 1; min-width: 0; }
+  .convo-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .convo-name { font-size: 13px; font-weight: 500; color: var(--text); }
+  .convo-time { font-size: 11px; color: var(--text2); white-space: nowrap; }
+  .convo-last { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .convo-item { font-size: 11px; color: var(--green); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+
+  .close-x { background: none; border: none; cursor: pointer; font-size: 22px; color: var(--text2); padding: 0; display: flex; }
+
+  /* Photo upload */
+  .photo-drop { position: relative; border: 1px dashed var(--border2); border-radius: var(--radius); background: var(--bg2); aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer; transition: border-color .15s; }
+  .photo-drop:hover { border-color: var(--green); }
+  .photo-drop.has-img { border-style: solid; border-color: var(--green); }
+  .photo-ph { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--text2); font-size: 13px; pointer-events: none; padding: 0 12px; text-align: center; }
+  .photo-ph i { font-size: 30px; color: var(--text3); }
+  .photo-preview-img { width: 100%; height: 100%; object-fit: cover; }
+  .photo-remove { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+  .photo-btns { display: flex; gap: 8px; margin-top: 8px; }
+  .photo-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border-radius: var(--radius); border: 0.5px solid var(--border2); background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer; transition: background .15s; }
+  .photo-btn:hover { background: var(--bg2); }
+  .photo-btn i { font-size: 16px; }
+  .card-img img, .det-img img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* Ad banner */
+  .ad-banner { background: var(--bg); border-bottom: 0.5px solid var(--border); overflow: hidden; height: 36px; display: flex; align-items: center; }
+  .ad-track { display: flex; gap: 0; animation: scrollAds 35s linear infinite; white-space: nowrap; }
+  .ad-track:hover { animation-play-state: paused; }
+  @keyframes scrollAds { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+  .ad-item { display: inline-flex; align-items: center; gap: 8px; padding: 0 32px; font-size: 12px; color: var(--text2); border-right: 0.5px solid var(--border); height: 36px; }
+  .ad-item .ad-label { font-size: 10px; font-weight: 600; color: var(--gold); background: var(--green-light); border-radius: 4px; padding: 1px 5px; letter-spacing: 0.3px; }
+  .ad-item a { color: var(--text); font-weight: 500; }
+  .ad-item a:hover { color: var(--gold); }
+
+  @media (max-width: 600px) {
+    .grid { grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
+    .hbtns .inbox-btn span:not(.badge) { display: none; }
+    .logo span { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo"><i class="ti ti-trophy"></i><span>SportsSwap</span></div>
+    <div class="search-wrap">
+      <i class="ti ti-search"></i>
+      <input type="text" id="srch" placeholder="Search any sport or gear…" oninput="render()">
+    </div>
+    <div class="hbtns">
+      <button class="inbox-btn" onclick="openInbox()" aria-label="Inbox">
+        <i class="ti ti-message-circle"></i>
+        <span>Inbox</span>
+        <span class="badge" id="unreadBadge">0</span>
+      </button>
+      <button class="sell-btn" onclick="openPost()">+ Sell</button>
+    </div>
+  </div>
+</header>
+
+<div class="sport-nav-wrap">
+  <div class="sport-nav" id="sportNav"></div>
+</div>
+
+<div class="ad-banner">
+  <div class="ad-track" id="adTrack">
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
+  </div>
+</div>
+
+<div class="app-shell">
+  <div class="content">
+    <div class="sub-cats" id="subCats"></div>
+    <div class="sort-row">
+      <span class="count" id="cnt">0 listings</span>
+      <select class="sort-sel" onchange="sortBy=this.value;render()">
+        <option value="recent">Most recent</option>
+        <option value="low">Price: low to high</option>
+        <option value="high">Price: high to low</option>
+      </select>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+</div>
+
+<!-- Detail overlay -->
+<div class="overlay" id="detOverlay">
+  <div class="det-modal" id="detContent"></div>
+</div>
+
+<!-- Post overlay -->
+<div class="overlay" id="postOverlay">
+  <div class="post-modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h2 style="margin:0">List your gear</h2>
+      <button class="close-x" onclick="closePost()"><i class="ti ti-x"></i></button>
+    </div>
+    <label>Photo</label>
+    <div class="photo-drop" id="photoDrop" onclick="triggerPhoto('library')">
+      <div class="photo-ph" id="photoPh"><i class="ti ti-camera"></i><span>Add a photo of your gear</span></div>
+      <img class="photo-preview-img" id="photoPreviewImg" alt="" style="display:none">
+      <button type="button" class="photo-remove" id="photoRemove" onclick="event.stopPropagation();clearPhoto()" style="display:none"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="photo-btns">
+      <button type="button" class="photo-btn" onclick="triggerPhoto('camera')"><i class="ti ti-camera"></i>Take photo</button>
+      <button type="button" class="photo-btn" onclick="triggerPhoto('library')"><i class="ti ti-photo"></i>Upload</button>
+    </div>
+    <input type="file" id="photoInputCamera" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelect(event)">
+    <input type="file" id="photoInputLibrary" accept="image/*" style="display:none" onchange="handlePhotoSelect(event)">
+    <label>Item name</label>
+    <input type="text" id="nTitle" placeholder="e.g. Adidas football boots size 10">
+    <div class="mrow">
+      <div><label>Sport</label><select id="nSport" onchange="updatePostSubs()"></select></div>
+      <div><label>Category</label><select id="nSubcat"></select></div>
+    </div>
+    <div class="mrow">
+      <div><label>Condition</label>
+        <select id="nCond"><option value="new">New</option><option value="like">Like new</option><option value="used">Used</option></select>
+      </div>
+      <div><label>Price ($)</label><input type="number" id="nPrice" placeholder="0" min="0"></div>
+    </div>
+    <label>Location</label><input type="text" id="nLoc" placeholder="City">
+    <label>Description</label><textarea id="nDesc" placeholder="Brand, size, condition details…"></textarea>
+    <div class="mactions">
+      <button class="bcx" onclick="closePost()">Cancel</button>
+      <button class="bpost" onclick="addListing()">Post listing</button>
+    </div>
+  </div>
+</div>
+
+<!-- Chat overlay -->
+<div class="overlay" id="chatOverlay">
+  <div class="chat-modal">
+    <div class="chat-header">
+      <button class="chat-back" onclick="closeChat()"><i class="ti ti-arrow-left"></i></button>
+      <div class="chat-item-info">
+        <div class="chat-item-name" id="chatItemName"></div>
+        <div class="chat-seller-name" id="chatSellerName"></div>
+      </div>
+      <div class="chat-item-price" id="chatItemPrice"></div>
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="quick-msgs" id="quickMsgs"></div>
+    <div class="chat-input-row">
+      <textarea class="chat-input" id="chatInput" placeholder="Type a message…" rows="1" onkeydown="handleKey(event)"></textarea>
+      <button class="send-btn" onclick="sendMsg()" aria-label="Send"><i class="ti ti-send"></i></button>
+    </div>
+  </div>
+</div>
+
+<!-- Inbox overlay -->
+<div class="overlay" id="inboxOverlay">
+  <div class="inbox-modal">
+    <div class="inbox-header">
+      <h2>Inbox</h2>
+      <button class="close-x" onclick="closeInbox()"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="inboxList"></div>
+  </div>
+</div>
+
+<script>
+const SPORTS=[
+  {id:'all',label:'All sports',icon:'ti-layout-grid'},
+  {id:'football',label:'Football',icon:'ti-ball-football',subs:['Boots','Jerseys','Shin guards','Balls','Gloves','Training gear'],bg:'#EAF3DE',emoji:'⚽'},
+  {id:'basketball',label:'Basketball',icon:'ti-ball-basketball',subs:['Shoes','Jerseys','Balls','Hoops','Training gear'],bg:'#FAEEDA',emoji:'🏀'},
+  {id:'tennis',label:'Tennis',icon:'ti-tennis',subs:['Rackets','Shoes','Balls','Bags','Apparel','Strings'],bg:'#EAF3DE',emoji:'🎾'},
+  {id:'cycling',label:'Cycling',icon:'ti-bike',subs:['Bikes','Helmets','Shoes','Jerseys','Accessories','Parts'],bg:'#E6F1FB',emoji:'🚴'},
+  {id:'swimming',label:'Swimming',icon:'ti-swimming',subs:['Goggles','Suits','Caps','Fins','Kickboards','Bags'],bg:'#E6F1FB',emoji:'🏊'},
+  {id:'running',label:'Running',icon:'ti-run',subs:['Shoes','Apparel','Watches','Accessories'],bg:'#FAECE7',emoji:'👟'},
+  {id:'gym',label:'Gym',icon:'ti-barbell',subs:['Weights','Machines','Clothing','Accessories'],bg:'#EEEDFE',emoji:'🏋️'},
+  {id:'fitness',label:'Fitness gear',icon:'ti-heart-rate-monitor',subs:['Cardio','Yoga','Pilates','Resistance bands','Foam rollers','Accessories'],bg:'#FCEBEB',emoji:'🏃'},
+  {id:'cricket',label:'Cricket',icon:'ti-cricket',subs:['Bats','Pads','Helmets','Balls','Gloves','Bags'],bg:'#EAF3DE',emoji:'🏏'},
+  {id:'golf',label:'Golf',icon:'ti-golf',subs:['Clubs','Bags','Shoes','Balls','Apparel'],bg:'#EAF3DE',emoji:'⛳'},
+  {id:'skiing',label:'Skiing',icon:'ti-snowflake',subs:['Skis','Boots','Poles','Helmets','Goggles','Apparel'],bg:'#E6F1FB',emoji:'⛷️'},
+  {id:'surf',label:'Surfing',icon:'ti-wave-sine',subs:['Boards','Wetsuits','Fins','Leashes','Bags'],bg:'#E6F1FB',emoji:'🏄'},
+  {id:'martial',label:'Martial arts',icon:'ti-shield',subs:['Gloves','Uniforms','Pads','Bags','Shoes'],bg:'#FCEBEB',emoji:'🥋'},
+];
+const AVATARS=[{cls:'av-g',i:'JR'},{cls:'av-b',i:'MK'},{cls:'av-c',i:'SP'},{cls:'av-p',i:'AL'},{cls:'av-a',i:'TW'},{cls:'av-g',i:'CH'}];
+const avMap={JR:0,MK:1,SP:2,AL:3,TW:4,CH:5};
+function av(s){return AVATARS[avMap[s]||0];}
+
+let saved=new Set(), activeSport='all', activeSub='all', sortBy='recent', nextId=100;
+let conversations={}, activeChatId=null;
+let pendingPhoto=null;
+
+let listings=[
+  {id:1,sport:'football',sub:'Boots',title:'Nike Mercurial Vapor boots',price:85,cond:'good',loc:'Sydney',desc:'Size 10 UK. Used one season, good condition. Firm ground studs.',seller:'JR',bg:'#EAF3DE',emoji:'⚽'},
+  {id:2,sport:'basketball',sub:'Shoes',title:'Jordan 1 High basketball shoes',price:110,cond:'like',loc:'Melbourne',desc:'Size 11 US. Worn indoors only, outsole barely marked.',seller:'MK',bg:'#FAEEDA',emoji:'🏀'},
+  {id:3,sport:'tennis',sub:'Rackets',title:'Wilson Blade 98 racket',price:130,cond:'good',loc:'Brisbane',desc:'16x19 pattern, used for 1 year, recently restrung with Luxilon.',seller:'SP',bg:'#EAF3DE',emoji:'🎾'},
+  {id:4,sport:'cycling',sub:'Helmets',title:'Giro Aether MIPS helmet',price:95,cond:'like',loc:'Perth',desc:'Size M. No crashes, worn about 20 rides. Light grey colourway.',seller:'AL',bg:'#E6F1FB',emoji:'🚴'},
+  {id:5,sport:'swimming',sub:'Goggles',title:'Speedo Fastskin LZR goggles',price:38,cond:'good',loc:'Sydney',desc:'Race spec, anti-fog coating still intact, soft nose seal.',seller:'TW',bg:'#E6F1FB',emoji:'🏊'},
+  {id:6,sport:'running',sub:'Shoes',title:'Nike Vaporfly 3 running shoes',price:175,cond:'like',loc:'Adelaide',desc:'Size 9 US. Under 50km on them, fantastic condition.',seller:'CH',bg:'#FAECE7',emoji:'👟'},
+  {id:7,sport:'gym',sub:'Weights',title:'Adjustable dumbbell set 5–32kg',price:220,cond:'good',loc:'Sydney',desc:'Bowflex SelectTech 552. Minor cosmetic marks, locking mechanism perfect.',seller:'JR',bg:'#EEEDFE',emoji:'🏋️'},
+  {id:8,sport:'cricket',sub:'Bats',title:'Kookaburra Kahuna cricket bat',price:160,cond:'good',loc:'Melbourne',desc:'Grade 2 English willow. One season use, good edges remain.',seller:'MK',bg:'#EAF3DE',emoji:'🏏'},
+  {id:9,sport:'golf',sub:'Clubs',title:'Titleist T200 iron set (5–PW)',price:480,cond:'like',loc:'Brisbane',desc:'Barely used, purchased last year. Regular shaft, RH.',seller:'SP',bg:'#EAF3DE',emoji:'⛳'},
+  {id:10,sport:'skiing',sub:'Boots',title:'Salomon S/Pro 130 ski boots',price:195,cond:'good',loc:'Canberra',desc:'Size 27.5 mondo. 2 seasons, flex intact, buckles all perfect.',seller:'AL',bg:'#E6F1FB',emoji:'⛷️'},
+  {id:11,sport:'surf',sub:'Boards',title:"Lost Hydra 5'10 surfboard",price:320,cond:'good',loc:'Gold Coast',desc:'Minor pressure dings on deck, no cracks. Comes with fin set.',seller:'TW',bg:'#E6F1FB',emoji:'🏄'},
+  {id:12,sport:'martial',sub:'Gloves',title:'Fairtex BGV1 Muay Thai gloves',price:65,cond:'like',loc:'Sydney',desc:'16oz, red. Excellent condition, used sparingly for pad work only.',seller:'CH',bg:'#FCEBEB',emoji:'🥋'},
+  {id:13,sport:'football',sub:'Balls',title:'Adidas Champions League match ball',price:45,cond:'new',loc:'Perth',desc:'Sealed in box, never kicked. Official match specification.',seller:'JR',bg:'#EAF3DE',emoji:'⚽'},
+  {id:14,sport:'gym',sub:'Clothing',title:'Gymshark lifting shorts ×3',price:55,cond:'like',loc:'Melbourne',desc:'Size L. 3 pairs, worn maybe twice each. Black, navy, grey.',seller:'MK',bg:'#EEEDFE',emoji:'🏋️'},
+  {id:15,sport:'tennis',sub:'Shoes',title:'Asics Gel Resolution 9',price:70,cond:'good',loc:'Sydney',desc:'Size 9.5 US. Clay court outsole, good tread remaining.',seller:'SP',bg:'#EAF3DE',emoji:'🎾'},
+  {id:16,sport:'cycling',sub:'Bikes',title:'Trek Domane AL 2 road bike',price:750,cond:'good',loc:'Melbourne',desc:'Size 56cm. 2022 model, Shimano Claris groupset. Light scratches only.',seller:'AL',bg:'#E6F1FB',emoji:'🚴'},
+];
+
+const QUICK_MSGS=['Is this still available?',"What's your best price?",'Can I pick up locally?','Any more photos?','Would you take offers?','Can you post it?'];
+const REPLIES={
+  available:["Yes, still available! Are you interested?","It's still here — come grab it!"],
+  price:["Best I can do is a small discount — what were you thinking?","I could drop it slightly for a quick sale.","It's already well priced but make me an offer."],
+  pick:["Yes, pick-up welcome! Just let me know when suits.","Happy to arrange a pick-up, just message me your timing."],
+  photo:["I can send more photos — what would you like to see?","Sure, I'll take some more shots and send them through."],
+  offer:["Hmm, let me think about that...","That's a bit low, but I could meet you in the middle?","I could do that if you can pick up quickly."],
+  default:["Thanks for your message! I'll get back to you shortly.","Sounds good, let me know if you have more questions.","Happy to help — feel free to ask anything!"],
+};
+
+function condBadge(c){
+  if(c==='new') return '<span class="cond-badge c-new">New</span>';
+  if(c==='like') return '<span class="cond-badge c-like">Like new</span>';
+  return '<span class="cond-badge c-used">Used</span>';
+}
+
+function buildNav(){
+  const all=SPORTS[0];
+  const rest=[...SPORTS.slice(1)].sort((a,b)=>{
+    const countA=listings.filter(l=>l.sport===a.id).length;
+    const countB=listings.filter(l=>l.sport===b.id).length;
+    return countB-countA;
+  });
+  const sorted=[all,...rest];
+  document.getElementById('sportNav').innerHTML=sorted.map(s=>{
+    const count=s.id==='all'?listings.length:listings.filter(l=>l.sport===s.id).length;
+    const badge=count>0?`<span style="font-size:10px;background:var(--green-light);color:var(--green-text);border-radius:20px;padding:1px 6px;margin-left:3px">${count}</span>`:'';
+    return`<button class="sport-tab${s.id===activeSport?' active':''}" onclick="setSport('${s.id}')"><i class="ti ${s.icon}"></i>${s.label}${badge}</button>`;
+  }).join('');
+}
+function buildSubCats(){
+  const sc=document.getElementById('subCats');
+  if(activeSport==='all'){sc.innerHTML='';return;}
+  const sport=SPORTS.find(s=>s.id===activeSport);
+  if(!sport?.subs){sc.innerHTML='';return;}
+  sc.innerHTML='<div class="sub-pill'+(activeSub==='all'?' active':'')+'" onclick="setSub(\'all\',this)">All</div>'+
+    sport.subs.map(s=>`<div class="sub-pill${activeSub===s?' active':''}" onclick="setSub('${s}',this)">${s}</div>`).join('');
+}
+function setSport(id){
+  activeSport=id; activeSub='all';
+  buildNav(); buildSubCats(); render();
+}
+function setSub(s,el){
+  activeSub=s;
+  document.querySelectorAll('.sub-pill').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active'); render();
+}
+
+function render(){
+  const q=document.getElementById('srch').value.toLowerCase();
+  let items=listings.filter(l=>{
+    if(activeSport!=='all'&&l.sport!==activeSport) return false;
+    if(activeSub!=='all'&&l.sub!==activeSub) return false;
+    if(q&&![l.title,l.desc,l.sport,l.sub].some(f=>f.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  if(sortBy==='low') items.sort((a,b)=>a.price-b.price);
+  else if(sortBy==='high') items.sort((a,b)=>b.price-a.price);
+  document.getElementById('cnt').textContent=items.length+' listing'+(items.length!==1?'s':'');
+  const g=document.getElementById('grid');
+  if(!items.length){
+    g.innerHTML='<div class="empty"><i class="ti ti-mood-empty"></i><p style="font-weight:500;margin-bottom:4px">No listings found</p><p style="font-size:13px;color:var(--text2)">Try a different sport or search term</p></div>';
+    return;
+  }
+  g.innerHTML=items.map(l=>{
+    const a=av(l.seller);
+    const imgInner=l.photo?`<img src="${l.photo}" alt="${l.title}">`:`<span>${l.emoji}</span>`;
+    return`<div class="card" onclick="openDet(${l.id})">
+      <div class="card-img" style="background:${l.bg}">${condBadge(l.cond)}${imgInner}
+        <button class="hrt${saved.has(l.id)?' on':''}" onclick="toggleSave(event,${l.id})" aria-label="Save"><i class="ti ti-heart"></i></button>
+      </div>
+      <div class="card-body">
+        <div class="card-title">${l.title}</div>
+        <div class="card-sport">${SPORTS.find(s=>s.id===l.sport)?.label||l.sport} · ${l.sub}</div>
+        <div class="card-price">$${l.price}</div>
+        <div class="card-footer">
+          <div style="display:flex;align-items:center">
+            <div class="av ${a.cls}" style="width:18px;height:18px;font-size:9px">${a.i}</div>
+            <span class="sname">${l.seller}</span>
+          </div>
+          <div class="loc-tag"><i class="ti ti-map-pin" style="font-size:11px"></i>${l.loc}</div>
+        </div>
+        <button class="msg-btn" onclick="event.stopPropagation();startChat(${l.id})">Message seller</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleSave(e,id){e.stopPropagation();saved.has(id)?saved.delete(id):saved.add(id);render();}
+
+function openDet(id){
+  const l=listings.find(x=>x.id===id); if(!l) return;
+  const a=av(l.seller);
+  const sportLabel=SPORTS.find(s=>s.id===l.sport)?.label||l.sport;
+  document.getElementById('detContent').innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <span class="det-price">$${l.price}</span>
+      <button class="close-x" onclick="closeDet()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="det-img" style="background:${l.bg}">${l.photo?`<img src="${l.photo}" alt="${l.title}">`:l.emoji}</div>
+    <div class="det-title">${l.title}</div>
+    <div class="det-tags">${condBadge(l.cond)}<span class="tag">${sportLabel}</span><span class="tag">${l.sub}</span><span class="tag"><i class="ti ti-map-pin" style="font-size:11px;vertical-align:-1px"></i> ${l.loc}</span></div>
+    <div class="det-desc">${l.desc}</div>
+    <div class="det-seller">
+      <div class="av ${a.cls}" style="width:36px;height:36px;font-size:14px">${a.i}</div>
+      <div class="sinfo"><div class="sn">${l.seller}</div><div class="sr">4.8 ★ · Active seller</div></div>
+    </div>
+    <button class="cbtn" onclick="closeDet();startChat(${l.id})"><i class="ti ti-message-circle" style="font-size:15px;vertical-align:-2px;margin-right:6px"></i>Message seller</button>
+    <button class="obtn" onclick="closeDet();startChatWithOffer(${l.id})">Make an offer</button>`;
+  document.getElementById('detOverlay').classList.add('open');
+}
+function closeDet(){document.getElementById('detOverlay').classList.remove('open');}
+
+function getChatId(lid){return'c'+lid;}
+function now(){const d=new Date();return d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');}
+
+function startChat(listingId, firstMsg){
+  const l=listings.find(x=>x.id===listingId); if(!l) return;
+  const cid=getChatId(listingId);
+  if(!conversations[cid]){
+    conversations[cid]={listingId,seller:l.seller,messages:[],unread:false};
+    conversations[cid].messages.push({from:'seller',text:`Hi! Thanks for your interest in the ${l.title}. Feel free to ask any questions!`,time:now()});
+  }
+  if(firstMsg){
+    conversations[cid].messages.push({from:'me',text:firstMsg,time:now()});
+    scheduleReply(cid,l);
+  }
+  activeChatId=cid;
+  renderChat(cid);
+  document.getElementById('chatOverlay').classList.add('open');
+}
+function startChatWithOffer(lid){
+  const l=listings.find(x=>x.id===lid); if(!l) return;
+  startChat(lid,`Hi! Would you accept $${Math.round(l.price*0.85)} for this?`);
+}
+
+function scheduleReply(cid,l){
+  setTimeout(()=>{
+    if(!conversations[cid]) return;
+    const last=conversations[cid].messages.slice(-1)[0];
+    const txt=(last?.text||'').toLowerCase();
+    let pool=REPLIES.default;
+    if(txt.includes('available')) pool=REPLIES.available;
+    else if(txt.includes('price')||txt.includes('accept')||txt.includes('take')) pool=REPLIES.price;
+    else if(txt.includes('pick')||txt.includes('collect')||txt.includes('local')) pool=REPLIES.pick;
+    else if(txt.includes('photo')||txt.includes('picture')) pool=REPLIES.photo;
+    else if(txt.includes('$')||txt.includes('offer')) pool=REPLIES.offer;
+    conversations[cid].messages.push({from:'seller',text:pool[Math.floor(Math.random()*pool.length)],time:now()});
+    if(activeChatId===cid) renderChatMessages(cid);
+    else{conversations[cid].unread=true;updateBadge();}
+  },1200+Math.random()*800);
+}
+
+function renderChat(cid){
+  const l=listings.find(x=>x.id===conversations[cid].listingId);
+  document.getElementById('chatItemName').textContent=l?l.title:'';
+  document.getElementById('chatSellerName').textContent='Seller: '+(l?.seller||'');
+  document.getElementById('chatItemPrice').textContent=l?'$'+l.price:'';
+  document.getElementById('quickMsgs').innerHTML=QUICK_MSGS.slice(0,4).map(q=>
+    `<button class="qm" onclick="sendQuick(\`${q}\`)">${q}</button>`).join('');
+  conversations[cid].unread=false; updateBadge();
+  renderChatMessages(cid);
+}
+
+function renderChatMessages(cid){
+  const conv=conversations[cid]; if(!conv) return;
+  const sa=av(conv.seller);
+  const el=document.getElementById('chatMessages');
+  el.innerHTML=conv.messages.map(m=>{
+    const mine=m.from==='me';
+    const a=mine?{cls:'av-b',i:'Me'}:sa;
+    return`<div class="msg-row${mine?' mine':''}">
+      <div class="av ${a.cls}" style="width:26px;height:26px;font-size:10px">${a.i}</div>
+      <div>
+        <div class="bubble ${mine?'mine':'theirs'}">${m.text}</div>
+        <div class="msg-time" style="text-align:${mine?'right':'left'}">${m.time}</div>
+      </div>
+    </div>`;
+  }).join('');
+  el.scrollTop=el.scrollHeight;
+}
+
+function sendMsg(){
+  const inp=document.getElementById('chatInput');
+  const txt=inp.value.trim();
+  if(!txt||!activeChatId) return;
+  conversations[activeChatId].messages.push({from:'me',text:txt,time:now()});
+  inp.value=''; renderChatMessages(activeChatId);
+  const l=listings.find(x=>x.id===conversations[activeChatId].listingId);
+  scheduleReply(activeChatId,l);
+}
+function sendQuick(txt){document.getElementById('chatInput').value=txt;sendMsg();}
+function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();}}
+function closeChat(){document.getElementById('chatOverlay').classList.remove('open');activeChatId=null;}
+
+function updateBadge(){
+  const n=Object.values(conversations).filter(c=>c.unread).length;
+  const b=document.getElementById('unreadBadge');
+  b.style.display=n>0?'flex':'none'; b.textContent=n;
+}
+
+function openInbox(){
+  const convos=Object.entries(conversations);
+  const list=document.getElementById('inboxList');
+  if(!convos.length){
+    list.innerHTML='<div class="inbox-empty"><i class="ti ti-message-circle"></i><p style="font-weight:500;margin-bottom:4px">No messages yet</p><p style="font-size:13px">Message a seller to get started</p></div>';
+  } else {
+    list.innerHTML=convos.map(([cid,conv])=>{
+      const l=listings.find(x=>x.id===conv.listingId);
+      const a=av(conv.seller);
+      const last=conv.messages.slice(-1)[0];
+      return`<div class="convo-row" onclick="openConvo('${cid}')">
+        <div class="av ${a.cls}" style="width:40px;height:40px;font-size:14px">${a.i}</div>
+        <div class="convo-info">
+          <div class="convo-top"><span class="convo-name">${conv.seller}</span><span class="convo-time">${last?.time||''}</span></div>
+          <div class="convo-item">${l?.title||''}</div>
+          <div class="convo-last">${last?.text||''}</div>
+        </div>
+        ${conv.unread?'<div class="unread-dot"></div>':''}
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('inboxOverlay').classList.add('open');
+}
+function openConvo(cid){closeInbox();activeChatId=cid;renderChat(cid);document.getElementById('chatOverlay').classList.add('open');}
+function closeInbox(){document.getElementById('inboxOverlay').classList.remove('open');}
+
+function openPost(){
+  const sel=document.getElementById('nSport');
+  sel.innerHTML=SPORTS.filter(s=>s.id!=='all').map(s=>`<option value="${s.id}">${s.label}</option>`).join('');
+  updatePostSubs();
+  clearPhoto();
+  document.getElementById('postOverlay').classList.add('open');
+}
+function closePost(){document.getElementById('postOverlay').classList.remove('open');}
+
+function triggerPhoto(mode){
+  document.getElementById(mode==='camera'?'photoInputCamera':'photoInputLibrary').click();
+}
+function handlePhotoSelect(e){
+  const file=e.target.files[0]; e.target.value='';
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const img=new Image();
+    img.onload=()=>{
+      const maxDim=1000; let w=img.width, h=img.height;
+      if(w>maxDim||h>maxDim){const s=maxDim/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s);}
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      pendingPhoto=cv.toDataURL('image/jpeg',0.82);
+      showPhotoPreview();
+    };
+    img.onerror=()=>alert('Could not read that image. Try another file.');
+    img.src=ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function showPhotoPreview(){
+  const im=document.getElementById('photoPreviewImg');
+  im.src=pendingPhoto; im.style.display='block';
+  document.getElementById('photoPh').style.display='none';
+  document.getElementById('photoRemove').style.display='flex';
+  document.getElementById('photoDrop').classList.add('has-img');
+}
+function clearPhoto(){
+  pendingPhoto=null;
+  const im=document.getElementById('photoPreviewImg');
+  im.src=''; im.style.display='none';
+  document.getElementById('photoPh').style.display='flex';
+  document.getElementById('photoRemove').style.display='none';
+  document.getElementById('photoDrop').classList.remove('has-img');
+}
+function updatePostSubs(){
+  const sport=SPORTS.find(s=>s.id===document.getElementById('nSport').value);
+  document.getElementById('nSubcat').innerHTML=(sport?.subs||['General']).map(s=>`<option>${s}</option>`).join('');
+}
+function addListing(){
+  const title=document.getElementById('nTitle').value.trim();
+  const price=parseFloat(document.getElementById('nPrice').value);
+  if(!title||isNaN(price)){alert('Please enter a title and price.');return;}
+  const sportId=document.getElementById('nSport').value;
+  const sport=SPORTS.find(s=>s.id===sportId);
+  listings.unshift({id:nextId++,sport:sportId,sub:document.getElementById('nSubcat').value,title,price:Math.round(price),cond:document.getElementById('nCond').value,loc:document.getElementById('nLoc').value.trim()||'Your city',desc:document.getElementById('nDesc').value.trim()||'No description.',seller:'You',bg:sport?.bg||'#F1EFE8',emoji:sport?.emoji||'🏆',photo:pendingPhoto});
+  closePost(); ['nTitle','nPrice','nLoc','nDesc'].forEach(id=>{document.getElementById(id).value='';}); clearPhoto();
+  activeSport=sportId; activeSub='all'; buildNav(); buildSubCats(); render();
+}
+
+[['detOverlay',closeDet],['postOverlay',closePost],['chatOverlay',closeChat],['inboxOverlay',closeInbox]].forEach(([id,fn])=>{
+  document.getElementById(id).addEventListener('click',function(e){if(e.target===this)fn();});
+});
+
+buildNav(); buildSubCats(); render();
+</script>
+</body>
+</html>
