@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -11,7 +11,10 @@ import {
   StyleSheet,
   Dimensions,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
+import { db } from './firebase';
+import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
 
 const {width} = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -44,18 +47,7 @@ const SPORTS = [
   {id: 'martial', label: 'Martial arts', emoji: '🥋', bg: '#FCEBEB'},
 ];
 
-const LISTINGS = [
-  {id: 1, sport: 'football', title: 'Nike Mercurial Vapor boots', price: 85, cond: 'used', loc: 'Sydney', seller: 'JR', bg: '#EAF3DE', emoji: '⚽'},
-  {id: 2, sport: 'basketball', title: 'Jordan 1 High basketball shoes', price: 110, cond: 'like', loc: 'Melbourne', seller: 'MK', bg: '#FAEEDA', emoji: '🏀'},
-  {id: 3, sport: 'tennis', title: 'Wilson Blade 98 racket', price: 130, cond: 'used', loc: 'Brisbane', seller: 'SP', bg: '#EAF3DE', emoji: '🎾'},
-  {id: 4, sport: 'cycling', title: 'Giro Aether MIPS helmet', price: 95, cond: 'like', loc: 'Perth', seller: 'AL', bg: '#E6F1FB', emoji: '🚴'},
-  {id: 5, sport: 'swimming', title: 'Speedo Fastskin LZR goggles', price: 38, cond: 'used', loc: 'Sydney', seller: 'TW', bg: '#E6F1FB', emoji: '🏊'},
-  {id: 6, sport: 'running', title: 'Nike Vaporfly 3 running shoes', price: 175, cond: 'like', loc: 'Adelaide', seller: 'CH', bg: '#FAECE7', emoji: '👟'},
-  {id: 7, sport: 'gym', title: 'Adjustable dumbbell set 5–32kg', price: 220, cond: 'used', loc: 'Sydney', seller: 'JR', bg: '#EEEDFE', emoji: '🏋️'},
-  {id: 8, sport: 'cricket', title: 'Kookaburra Kahuna cricket bat', price: 160, cond: 'used', loc: 'Melbourne', seller: 'MK', bg: '#EAF3DE', emoji: '🏏'},
-  {id: 9, sport: 'golf', title: 'Titleist T200 iron set (5–PW)', price: 480, cond: 'like', loc: 'Brisbane', seller: 'SP', bg: '#EAF3DE', emoji: '⛳'},
-  {id: 10, sport: 'surf', title: "Lost Hydra 5'10 surfboard", price: 320, cond: 'used', loc: 'Gold Coast', seller: 'TW', bg: '#E6F1FB', emoji: '🏄'},
-];
+// Listings now come from Firebase in real time — no dummy data
 
 const QUICK_MSGS = ['Is this still available?', "What's your best price?", 'Can I pick up locally?', 'Any more photos?'];
 
@@ -74,17 +66,53 @@ export default function App() {
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   const [saved, setSaved] = useState<Set<number>>(new Set());
+  const [listings, setListings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [postOpen, setPostOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newPrice, setNewPrice] = useState('');
+  const [newSport, setNewSport] = useState('football');
+  const [newLoc, setNewLoc] = useState('');
+  const [newCond, setNewCond] = useState('used');
+
+  // Load listings from Firebase in real time
+  useEffect(() => {
+    const q = query(collection(db, 'listings'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, snapshot => {
+      const items = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
+      setListings(items);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  async function postListing() {
+    if (!newTitle || !newPrice) return;
+    const sport = SPORTS.find(s => s.id === newSport);
+    await addDoc(collection(db, 'listings'), {
+      title: newTitle,
+      price: parseFloat(newPrice),
+      sport: newSport,
+      cond: newCond,
+      loc: newLoc || 'Unknown',
+      seller: 'You',
+      bg: sport?.bg || '#EAF3DE',
+      emoji: sport?.emoji || '🏆',
+      createdAt: serverTimestamp(),
+    });
+    setNewTitle(''); setNewPrice(''); setNewLoc(''); setPostOpen(false);
+  }
 
   const sortedSports = [
     SPORTS[0],
     ...[...SPORTS.slice(1)].sort((a, b) => {
-      const ca = LISTINGS.filter(l => l.sport === a.id).length;
-      const cb = LISTINGS.filter(l => l.sport === b.id).length;
+      const ca = listings.filter(l => l.sport === a.id).length;
+      const cb = listings.filter(l => l.sport === b.id).length;
       return cb - ca;
     }),
   ];
 
-  const filtered = LISTINGS.filter(l => {
+  const filtered = listings.filter(l => {
     if (activeSport !== 'all' && l.sport !== activeSport) return false;
     if (search && !l.title.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -132,7 +160,7 @@ export default function App() {
             onChangeText={setSearch}
           />
         </View>
-        <TouchableOpacity style={styles.sellBtn}>
+        <TouchableOpacity style={styles.sellBtn} onPress={() => setPostOpen(true)}>
           <Text style={styles.sellBtnText}>+ Sell</Text>
         </TouchableOpacity>
       </View>
@@ -172,8 +200,16 @@ export default function App() {
         </ScrollView>
       </View>
 
+      {/* Loading */}
+      {loading && (
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+          <ActivityIndicator size="large" color={GOLD} />
+          <Text style={{color: TEXT2, marginTop: 10}}>Loading listings...</Text>
+        </View>
+      )}
+
       {/* Listings grid */}
-      <FlatList
+      {!loading && <FlatList
         data={filtered}
         keyExtractor={i => String(i.id)}
         numColumns={2}
@@ -212,6 +248,51 @@ export default function App() {
           );
         }}
       />
+
+      }
+
+      {/* Post Listing Modal */}
+      <Modal visible={postOpen} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={styles.detModal}>
+            <View style={styles.detHeader}>
+              <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>List your gear</Text>
+              <TouchableOpacity onPress={() => setPostOpen(false)}>
+                <Text style={styles.closeX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView>
+              <Text style={styles.postLabel}>Item name</Text>
+              <TextInput style={styles.postInput} placeholder="e.g. Adidas football boots" placeholderTextColor={TEXT3} value={newTitle} onChangeText={setNewTitle} />
+              <Text style={styles.postLabel}>Price ($)</Text>
+              <TextInput style={styles.postInput} placeholder="0" placeholderTextColor={TEXT3} keyboardType="numeric" value={newPrice} onChangeText={setNewPrice} />
+              <Text style={styles.postLabel}>Sport</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 10}}>
+                {SPORTS.slice(1).map(s => (
+                  <TouchableOpacity key={s.id} onPress={() => setNewSport(s.id)}
+                    style={[styles.sportPill, newSport === s.id && styles.sportPillActive]}>
+                    <Text style={[styles.sportPillText, newSport === s.id && styles.sportPillTextActive]}>{s.emoji} {s.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <Text style={styles.postLabel}>Condition</Text>
+              <View style={{flexDirection: 'row', gap: 8, marginBottom: 10}}>
+                {['new', 'like', 'used'].map(c => (
+                  <TouchableOpacity key={c} onPress={() => setNewCond(c)}
+                    style={[styles.sportPill, newCond === c && styles.sportPillActive]}>
+                    <Text style={[styles.sportPillText, newCond === c && styles.sportPillTextActive]}>{c === 'like' ? 'Like new' : c.charAt(0).toUpperCase() + c.slice(1)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.postLabel}>Location</Text>
+              <TextInput style={styles.postInput} placeholder="City" placeholderTextColor={TEXT3} value={newLoc} onChangeText={setNewLoc} />
+              <TouchableOpacity style={[styles.cbtn, {marginTop: 16}]} onPress={postListing}>
+                <Text style={styles.cbtnText}>Post listing</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Detail Modal */}
       <Modal visible={!!selectedListing} animationType="slide" transparent>
@@ -378,4 +459,10 @@ const styles = StyleSheet.create({
   chatInput: {flex: 1, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, color: TEXT},
   sendBtn: {width: 36, height: 36, borderRadius: 18, backgroundColor: GOLD, alignItems: 'center', justifyContent: 'center'},
   sendBtnText: {color: 'white', fontSize: 16},
+  postLabel: {fontSize: 12, color: TEXT2, marginBottom: 4, marginTop: 12},
+  postInput: {borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, padding: 10, fontSize: 14, color: TEXT, backgroundColor: BG},
+  sportPill: {paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 0.5, borderColor: BORDER, backgroundColor: BG2, marginRight: 8},
+  sportPillActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
+  sportPillText: {fontSize: 12, color: TEXT2},
+  sportPillTextActive: {color: GOLD_TEXT, fontWeight: '500'},
 });
