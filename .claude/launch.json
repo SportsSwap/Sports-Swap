@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "SportsSwap Metro Bundler",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start", "--prefix", "SportsSwap"],
+      "port": 8081
+    },
+    {
+      "name": "SportsSwap Website (GitHub Pages preview)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "3000", "."],
+      "port": 3000
+    }
+  ]
+}
