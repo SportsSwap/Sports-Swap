@@ -12,9 +12,10 @@ import {
   Dimensions,
   StatusBar,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { db, auth } from './firebase';
-import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, getDoc, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AuthScreen from './AuthScreen';
 
@@ -134,6 +135,24 @@ export default function App() {
       createdAt: serverTimestamp(),
     });
     setNewTitle(''); setNewPrice(''); setNewLoc(''); setPostOpen(false);
+  }
+
+  function markAsSold(listing: any) {
+    Alert.alert(
+      'Mark as sold?',
+      `This will remove "${listing.title}" from the marketplace for everyone.`,
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Mark as sold',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteDoc(doc(db, 'listings', listing.id));
+            setSelectedListing(null);
+          },
+        },
+      ],
+    );
   }
 
   const sortedSports = [
@@ -359,9 +378,15 @@ export default function App() {
                   <Text style={styles.sellerRating}>4.8 ★ · Active seller</Text>
                 </View>
               </View>
-              <TouchableOpacity style={styles.cbtn} onPress={() => openChat(selectedListing)}>
-                <Text style={styles.cbtnText}>💬 Message seller</Text>
-              </TouchableOpacity>
+              {selectedListing?.sellerId === user.uid ? (
+                <TouchableOpacity style={styles.soldBtn} onPress={() => markAsSold(selectedListing)}>
+                  <Text style={styles.soldBtnText}>✓ Mark as sold</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.cbtn} onPress={() => openChat(selectedListing)}>
+                  <Text style={styles.cbtnText}>💬 Message seller</Text>
+                </TouchableOpacity>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -503,4 +528,6 @@ const styles = StyleSheet.create({
   sportPillTextActive: {color: GOLD_TEXT, fontWeight: '500'},
   avatarBtn: {width: 32, height: 32, borderRadius: 16, backgroundColor: GOLD_LIGHT, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: GOLD},
   avatarText: {fontSize: 13, fontWeight: '700', color: GOLD_TEXT},
+  soldBtn: {backgroundColor: '#27500A', borderRadius: 10, paddingVertical: 13, alignItems: 'center'},
+  soldBtnText: {color: 'white', fontSize: 15, fontWeight: '600'},
 });
