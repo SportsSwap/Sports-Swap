@@ -93,6 +93,18 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // Load listings from Firebase in real time (only once logged in)
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'listings'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, snapshot => {
+      const items = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+      setListings(items);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [user]);
+
   // Show loading spinner while checking auth
   if (authLoading) {
     return (
@@ -105,17 +117,6 @@ export default function App() {
 
   // Show auth screen if not logged in
   if (!user) return <AuthScreen />;
-
-  // Load listings from Firebase in real time
-  useEffect(() => {
-    const q = query(collection(db, 'listings'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q, snapshot => {
-      const items = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
-      setListings(items);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   async function postListing() {
     if (!newTitle || !newPrice) return;
