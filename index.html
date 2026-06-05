@@ -202,6 +202,8 @@
   .ad-track:hover { animation-play-state: paused; }
   @keyframes scrollAds { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
   .ad-item { display: inline-flex; align-items: center; gap: 8px; padding: 0 32px; font-size: 12px; color: var(--text2); border-right: 0.5px solid var(--border); height: 36px; }
+  .ad-cta { background: var(--green-light); color: var(--green-text); font-weight: 600; }
+  .ad-banner:hover .ad-cta { background: #F2E2B0; }
   .ad-item .ad-label { font-size: 10px; font-weight: 600; color: var(--gold); background: var(--green-light); border-radius: 4px; padding: 1px 5px; letter-spacing: 0.3px; }
   .ad-item a { color: var(--text); font-weight: 500; }
   .ad-item a:hover { color: var(--gold); }
@@ -237,18 +239,16 @@
   <div class="sport-nav" id="sportNav"></div>
 </div>
 
-<div class="ad-banner">
+<a class="ad-banner" href="https://docs.google.com/forms/d/e/1FAIpQLSeWaKXksc7LeElZjiEdcw9WYRahrYvIUYcHqYgguC7XtE5T-Q/viewform" target="_blank" rel="noopener" style="display:block;text-decoration:none">
   <div class="ad-track" id="adTrack">
-    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
-    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
-    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
-    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
-    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
-    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
-    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
-    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here — contact us to advertise</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here</span></div>
+    <div class="ad-item ad-cta"><span>📣 Want to advertise? Tap here to apply →</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here</span></div>
+    <div class="ad-item"><span class="ad-label">AD</span> <span>Your ad here</span></div>
+    <div class="ad-item ad-cta"><span>📣 Want to advertise? Tap here to apply →</span></div>
   </div>
-</div>
+</a>
 
 <div class="app-shell">
   <div class="content">
