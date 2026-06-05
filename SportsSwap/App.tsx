@@ -13,7 +13,9 @@ import {
   StatusBar,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
+import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { db, auth } from './firebase';
 import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, getDoc, deleteDoc, where, updateDoc, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -81,7 +83,7 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [avatarEmoji, setAvatarEmoji] = useState('');
   const [avatarColor, setAvatarColor] = useState(GOLD_LIGHT);
-  const [saved, setSaved] = useState<Set<number>>(new Set());
+  const [saved, setSaved] = useState<Set<string>>(new Set());
   const [listings, setListings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [postOpen, setPostOpen] = useState(false);
@@ -90,6 +92,9 @@ export default function App() {
   const [newSport, setNewSport] = useState('football');
   const [newLoc, setNewLoc] = useState('');
   const [newCond, setNewCond] = useState('used');
+  const [newPhoto, setNewPhoto] = useState<string | null>(null);
+  const [myListingsOpen, setMyListingsOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
 
   // Listen for auth state
   useEffect(() => {
@@ -103,6 +108,7 @@ export default function App() {
           setUsername(data.username || 'User');
           if (data.avatarEmoji) setAvatarEmoji(data.avatarEmoji);
           if (data.avatarColor) setAvatarColor(data.avatarColor);
+          if (Array.isArray(data.savedIds)) setSaved(new Set(data.savedIds));
         }
       }
       setAuthLoading(false);
@@ -170,9 +176,10 @@ export default function App() {
       sellerId: user.uid,
       bg: sport?.bg || '#EAF3DE',
       emoji: sport?.emoji || '🏆',
+      photo: newPhoto || null,
       createdAt: serverTimestamp(),
     });
-    setNewTitle(''); setNewPrice(''); setNewLoc(''); setPostOpen(false);
+    setNewTitle(''); setNewPrice(''); setNewLoc(''); setNewPhoto(null); setPostOpen(false);
   }
 
   function markAsSold(listing: any) {
@@ -265,13 +272,76 @@ export default function App() {
     await setDoc(doc(db, 'users', user.uid), {avatarEmoji: emoji, avatarColor: color}, {merge: true});
   }
 
-  function toggleSave(id: number) {
+  function toggleSave(id: string) {
     setSaved(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
+      // Persist favourites to the user's account
+      setDoc(doc(db, 'users', user.uid), {savedIds: Array.from(next)}, {merge: true});
       return next;
     });
   }
+
+  // Let the user pick a photo for a new listing (from library or camera)
+  function pickListingPhoto() {
+    Alert.alert('Add a photo', 'Choose where to get your photo from', [
+      {text: 'Cancel', style: 'cancel'},
+      {text: 'Take photo', onPress: () => grabPhoto('camera')},
+      {text: 'Choose from library', onPress: () => grabPhoto('library')},
+    ]);
+  }
+  function grabPhoto(mode: 'camera' | 'library') {
+    const opts = {mediaType: 'photo' as const, maxWidth: 1000, maxHeight: 1000, quality: 0.6 as const, includeBase64: true};
+    const cb = (res: any) => {
+      if (res.didCancel || res.errorCode) return;
+      const asset = res.assets?.[0];
+      if (asset?.base64) setNewPhoto(`data:${asset.type || 'image/jpeg'};base64,${asset.base64}`);
+    };
+    mode === 'camera' ? launchCamera(opts, cb) : launchImageLibrary(opts, cb);
+  }
+
+  // Shared card used by the main grid, My Listings and Saved
+  function renderCard(item: any) {
+    const cond = condLabel(item.cond);
+    const mine = item.sellerId === user.uid;
+    return (
+      <TouchableOpacity style={styles.card} onPress={() => setSelectedListing(item)}>
+        <View style={[styles.cardImg, {backgroundColor: item.bg}]}>
+          {item.photo
+            ? <Image source={{uri: item.photo}} style={styles.cardImgPhoto} />
+            : <Text style={styles.cardEmoji}>{item.emoji}</Text>}
+          <View style={[styles.condBadge, {backgroundColor: cond.bg}]}>
+            <Text style={[styles.condText, {color: cond.color}]}>{cond.label}</Text>
+          </View>
+          {!mine && (
+            <TouchableOpacity style={styles.heartBtn} onPress={() => toggleSave(item.id)}>
+              <Text style={{fontSize: 14}}>{saved.has(item.id) ? '❤️' : '🤍'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={styles.cardBody}>
+          <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
+          <Text style={styles.cardPrice}>${item.price}</Text>
+          <View style={styles.cardFooter}>
+            <Text style={styles.cardSeller}>{item.seller}</Text>
+            <Text style={styles.cardLoc}>📍 {item.loc}</Text>
+          </View>
+          {mine ? (
+            <TouchableOpacity style={styles.msgBtn} onPress={() => setSelectedListing(item)}>
+              <Text style={styles.msgBtnText}>Manage listing</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.msgBtn} onPress={() => openChat(item)}>
+              <Text style={styles.msgBtnText}>Message seller</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  const myListings = listings.filter(l => l.sellerId === user.uid);
+  const savedListings = listings.filter(l => saved.has(l.id));
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -353,33 +423,7 @@ export default function App() {
             <Text style={styles.emptyText}>No listings found</Text>
           </View>
         }
-        renderItem={({item}) => {
-          const cond = condLabel(item.cond);
-          return (
-            <TouchableOpacity style={styles.card} onPress={() => setSelectedListing(item)}>
-              <View style={[styles.cardImg, {backgroundColor: item.bg}]}>
-                <Text style={styles.cardEmoji}>{item.emoji}</Text>
-                <View style={[styles.condBadge, {backgroundColor: cond.bg}]}>
-                  <Text style={[styles.condText, {color: cond.color}]}>{cond.label}</Text>
-                </View>
-                <TouchableOpacity style={styles.heartBtn} onPress={() => toggleSave(item.id)}>
-                  <Text style={{fontSize: 14}}>{saved.has(item.id) ? '❤️' : '🤍'}</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.cardBody}>
-                <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-                <Text style={styles.cardPrice}>${item.price}</Text>
-                <View style={styles.cardFooter}>
-                  <Text style={styles.cardSeller}>{item.seller}</Text>
-                  <Text style={styles.cardLoc}>📍 {item.loc}</Text>
-                </View>
-                <TouchableOpacity style={styles.msgBtn} onPress={() => openChat(item)}>
-                  <Text style={styles.msgBtnText}>Message seller</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          );
-        }}
+        renderItem={({item}) => renderCard(item)}
       />
 
       }
@@ -395,6 +439,22 @@ export default function App() {
               </TouchableOpacity>
             </View>
             <ScrollView>
+              <Text style={styles.postLabel}>Photo</Text>
+              <TouchableOpacity style={styles.photoDrop} onPress={pickListingPhoto}>
+                {newPhoto ? (
+                  <>
+                    <Image source={{uri: newPhoto}} style={styles.photoPreview} />
+                    <TouchableOpacity style={styles.photoRemove} onPress={() => setNewPhoto(null)}>
+                      <Text style={{color: 'white', fontSize: 14}}>✕</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <View style={{alignItems: 'center'}}>
+                    <Text style={{fontSize: 28}}>📷</Text>
+                    <Text style={{color: TEXT2, fontSize: 13, marginTop: 4}}>Add a photo of your gear</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
               <Text style={styles.postLabel}>Item name</Text>
               <TextInput style={styles.postInput} placeholder="e.g. Adidas football boots" placeholderTextColor={TEXT3} value={newTitle} onChangeText={setNewTitle} />
               <Text style={styles.postLabel}>Price ($)</Text>
@@ -439,7 +499,9 @@ export default function App() {
                 </TouchableOpacity>
               </View>
               <View style={[styles.detImg, {backgroundColor: selectedListing?.bg}]}>
-                <Text style={styles.detEmoji}>{selectedListing?.emoji}</Text>
+                {selectedListing?.photo
+                  ? <Image source={{uri: selectedListing.photo}} style={styles.detImgPhoto} />
+                  : <Text style={styles.detEmoji}>{selectedListing?.emoji}</Text>}
               </View>
               <Text style={styles.detTitle}>{selectedListing?.title}</Text>
               <View style={styles.detTags}>
@@ -548,6 +610,20 @@ export default function App() {
                 <View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{inboxChats.length}</Text></View>
               )}
             </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setMyListingsOpen(true);}}>
+              <Text style={styles.menuItemIcon}>🏷️</Text>
+              <Text style={styles.menuItemText}>My Listings</Text>
+              {myListings.length > 0 && (
+                <View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{myListings.length}</Text></View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setSavedOpen(true);}}>
+              <Text style={styles.menuItemIcon}>❤️</Text>
+              <Text style={styles.menuItemText}>Saved</Text>
+              {savedListings.length > 0 && (
+                <View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{savedListings.length}</Text></View>
+              )}
+            </TouchableOpacity>
             <View style={styles.menuDivider} />
             <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); signOut(auth);}}>
               <Text style={styles.menuItemIcon}>🚪</Text>
@@ -641,6 +717,60 @@ export default function App() {
                     </TouchableOpacity>
                   );
                 })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* My Listings */}
+      <Modal visible={myListingsOpen} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={[styles.detModal, {maxHeight: '85%'}]}>
+            <View style={styles.detHeader}>
+              <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>My Listings</Text>
+              <TouchableOpacity onPress={() => setMyListingsOpen(false)}>
+                <Text style={styles.closeX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {myListings.length === 0 ? (
+              <View style={{alignItems: 'center', paddingVertical: 50}}>
+                <Text style={{fontSize: 34, marginBottom: 10}}>🏷️</Text>
+                <Text style={{fontWeight: '500', color: TEXT, marginBottom: 4}}>No listings yet</Text>
+                <Text style={{fontSize: 13, color: TEXT2}}>Tap + Sell to list your first item</Text>
+              </View>
+            ) : (
+              <ScrollView contentContainerStyle={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between'}}>
+                {myListings.map(item => (
+                  <View key={item.id} style={{width: '48%', marginBottom: 12}}>{renderCard(item)}</View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Saved / Favourites */}
+      <Modal visible={savedOpen} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={[styles.detModal, {maxHeight: '85%'}]}>
+            <View style={styles.detHeader}>
+              <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>Saved Items</Text>
+              <TouchableOpacity onPress={() => setSavedOpen(false)}>
+                <Text style={styles.closeX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {savedListings.length === 0 ? (
+              <View style={{alignItems: 'center', paddingVertical: 50}}>
+                <Text style={{fontSize: 34, marginBottom: 10}}>❤️</Text>
+                <Text style={{fontWeight: '500', color: TEXT, marginBottom: 4}}>No saved items yet</Text>
+                <Text style={{fontSize: 13, color: TEXT2}}>Tap the heart on any listing to save it</Text>
+              </View>
+            ) : (
+              <ScrollView contentContainerStyle={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between'}}>
+                {savedListings.map(item => (
+                  <View key={item.id} style={{width: '48%', marginBottom: 12}}>{renderCard(item)}</View>
+                ))}
               </ScrollView>
             )}
           </View>
@@ -772,4 +902,10 @@ const styles = StyleSheet.create({
   convoItem: {fontSize: 12, color: GOLD, marginTop: 1},
   convoLast: {fontSize: 12, color: TEXT2, marginTop: 1},
   convoPrice: {fontSize: 15, fontWeight: '700', color: GOLD},
+  // Photos
+  cardImgPhoto: {width: '100%', height: '100%', resizeMode: 'cover'},
+  detImgPhoto: {width: '100%', height: '100%', borderRadius: 10, resizeMode: 'cover'},
+  photoDrop: {height: 150, borderRadius: 10, borderWidth: 1, borderColor: BORDER, borderStyle: 'dashed', backgroundColor: BG2, alignItems: 'center', justifyContent: 'center', marginBottom: 4, overflow: 'hidden'},
+  photoPreview: {width: '100%', height: '100%', resizeMode: 'cover'},
+  photoRemove: {position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center'},
 });
