@@ -15,7 +15,7 @@ import {
   Alert,
 } from 'react-native';
 import { db, auth } from './firebase';
-import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, getDoc, deleteDoc, where, updateDoc, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AuthScreen from './AuthScreen';
 
@@ -54,6 +54,9 @@ const SPORTS = [
 
 const QUICK_MSGS = ['Is this still available?', "What's your best price?", 'Can I pick up locally?', 'Any more photos?'];
 
+const AVATAR_EMOJIS = ['🏆', '⚽', '🏀', '🎾', '🏈', '🏐', '🏉', '⛳', '🏏', '🥊', '🏄', '🚴', '🏊', '⛷️', '🏋️', '😎', '🔥', '⭐', '👟', '🧢'];
+const AVATAR_COLORS = ['#EAF3DE', '#FAEEDA', '#E6F1FB', '#FAECE7', '#EEEDFE', '#FCEBEB', '#FBF1D6', '#E0F2F1'];
+
 function condLabel(c: string) {
   if (c === 'new') return {label: 'New', color: '#27500A', bg: '#EAF3DE'};
   if (c === 'like') return {label: 'Like new', color: '#0C447C', bg: '#E6F1FB'};
@@ -68,9 +71,16 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [selectedListing, setSelectedListing] = useState<any>(null);
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatListing, setChatListing] = useState<any>(null);
-  const [messages, setMessages] = useState<any[]>([]);
+  const [activeChat, setActiveChat] = useState<any>(null);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [inboxChats, setInboxChats] = useState<any[]>([]);
+  const [email, setEmail] = useState('');
+  const [avatarEmoji, setAvatarEmoji] = useState('');
+  const [avatarColor, setAvatarColor] = useState(GOLD_LIGHT);
   const [saved, setSaved] = useState<Set<number>>(new Set());
   const [listings, setListings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,8 +96,14 @@ export default function App() {
     const unsub = onAuthStateChanged(auth, async u => {
       setUser(u);
       if (u) {
+        setEmail(u.email || '');
         const snap = await getDoc(doc(db, 'users', u.uid));
-        if (snap.exists()) setUsername(snap.data().username || 'User');
+        if (snap.exists()) {
+          const data = snap.data();
+          setUsername(data.username || 'User');
+          if (data.avatarEmoji) setAvatarEmoji(data.avatarEmoji);
+          if (data.avatarColor) setAvatarColor(data.avatarColor);
+        }
       }
       setAuthLoading(false);
     });
@@ -105,6 +121,28 @@ export default function App() {
     });
     return () => unsub();
   }, [user]);
+
+  // Load my conversations for the inbox (real time)
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'chats'), where('participants', 'array-contains', user.uid));
+    const unsub = onSnapshot(q, snapshot => {
+      const items = snapshot.docs.map(d => ({id: d.id, ...d.data()} as any));
+      items.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+      setInboxChats(items);
+    });
+    return () => unsub();
+  }, [user]);
+
+  // Load messages for the currently open chat (real time)
+  useEffect(() => {
+    if (!activeChat) { setChatMessages([]); return; }
+    const q = query(collection(db, 'chats', activeChat.id, 'messages'), orderBy('createdAt', 'asc'));
+    const unsub = onSnapshot(q, snapshot => {
+      setChatMessages(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
+    });
+    return () => unsub();
+  }, [activeChat]);
 
   // Show loading spinner while checking auth
   if (authLoading) {
@@ -170,21 +208,61 @@ export default function App() {
     return true;
   });
 
-  function openChat(listing: any) {
-    setChatListing(listing);
-    setMessages([{from: 'seller', text: `Hi! Thanks for your interest in the ${listing.title}. Feel free to ask any questions!`}]);
+  // Start (or reopen) a real conversation with the seller of a listing
+  async function openChat(listing: any) {
+    const chatId = `${listing.id}_${user.uid}`;
+    await setDoc(doc(db, 'chats', chatId), {
+      listingId: listing.id,
+      listingTitle: listing.title,
+      listingPrice: listing.price,
+      listingEmoji: listing.emoji,
+      listingBg: listing.bg,
+      sellerId: listing.sellerId,
+      sellerName: listing.seller,
+      buyerId: user.uid,
+      buyerName: username,
+      participants: [listing.sellerId, user.uid],
+      updatedAt: serverTimestamp(),
+    }, {merge: true});
+    setActiveChat({
+      id: chatId,
+      title: listing.title,
+      price: listing.price,
+      otherName: listing.seller,
+    });
     setChatOpen(true);
     setSelectedListing(null);
   }
 
-  function sendMessage(text: string) {
-    if (!text.trim()) return;
-    const newMsgs = [...messages, {from: 'me', text}];
-    setMessages(newMsgs);
+  // Open a conversation from the inbox
+  function openChatFromInbox(chat: any) {
+    const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
+    setActiveChat({id: chat.id, title: chat.listingTitle, price: chat.listingPrice, otherName});
+    setChatOpen(true);
+    setInboxOpen(false);
+  }
+
+  async function sendMessage(text: string) {
+    if (!text.trim() || !activeChat) return;
     setInputText('');
-    setTimeout(() => {
-      setMessages(prev => [...prev, {from: 'seller', text: "Thanks for your message! I'll get back to you shortly."}]);
-    }, 1200);
+    await addDoc(collection(db, 'chats', activeChat.id, 'messages'), {
+      senderId: user.uid,
+      senderName: username,
+      text: text.trim(),
+      createdAt: serverTimestamp(),
+    });
+    await updateDoc(doc(db, 'chats', activeChat.id), {
+      lastMessage: text.trim(),
+      lastSenderId: user.uid,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  // Save the chosen avatar to the user's profile
+  async function saveAvatar(emoji: string, color: string) {
+    setAvatarEmoji(emoji);
+    setAvatarColor(color);
+    await setDoc(doc(db, 'users', user.uid), {avatarEmoji: emoji, avatarColor: color}, {merge: true});
   }
 
   function toggleSave(id: number) {
@@ -215,8 +293,8 @@ export default function App() {
         <TouchableOpacity style={styles.sellBtn} onPress={() => setPostOpen(true)}>
           <Text style={styles.sellBtnText}>+ Sell</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => signOut(auth)} style={styles.avatarBtn}>
-          <Text style={styles.avatarText}>{username.charAt(0).toUpperCase()}</Text>
+        <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}>
+          <Text style={styles.avatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>
         </TouchableOpacity>
       </View>
 
@@ -397,23 +475,31 @@ export default function App() {
         <View style={styles.overlay}>
           <View style={styles.chatModal}>
             <View style={styles.chatHeader}>
-              <TouchableOpacity onPress={() => setChatOpen(false)}>
+              <TouchableOpacity onPress={() => {setChatOpen(false); setActiveChat(null);}}>
                 <Text style={styles.backBtn}>←</Text>
               </TouchableOpacity>
               <View style={{flex: 1}}>
-                <Text style={styles.chatItemName} numberOfLines={1}>{chatListing?.title}</Text>
-                <Text style={styles.chatSeller}>Seller: {chatListing?.seller}</Text>
+                <Text style={styles.chatItemName} numberOfLines={1}>{activeChat?.title}</Text>
+                <Text style={styles.chatSeller}>{activeChat?.otherName}</Text>
               </View>
-              <Text style={styles.chatPrice}>${chatListing?.price}</Text>
+              <Text style={styles.chatPrice}>${activeChat?.price}</Text>
             </View>
             <ScrollView style={styles.chatMessages} contentContainerStyle={{padding: 14}}>
-              {messages.map((m, i) => (
-                <View key={i} style={[styles.msgRow, m.from === 'me' && styles.msgRowMine]}>
-                  <View style={[styles.bubble, m.from === 'me' ? styles.bubbleMine : styles.bubbleTheirs]}>
-                    <Text style={m.from === 'me' ? styles.bubbleMineText : styles.bubbleTheirsText}>{m.text}</Text>
+              {chatMessages.length === 0 && (
+                <Text style={{textAlign: 'center', color: TEXT3, fontSize: 13, marginTop: 20}}>
+                  Say hello 👋 — start the conversation!
+                </Text>
+              )}
+              {chatMessages.map(m => {
+                const mine = m.senderId === user.uid;
+                return (
+                  <View key={m.id} style={[styles.msgRow, mine && styles.msgRowMine]}>
+                    <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                      <Text style={mine ? styles.bubbleMineText : styles.bubbleTheirsText}>{m.text}</Text>
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </ScrollView>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickMsgs}>
               {QUICK_MSGS.map(q => (
@@ -434,6 +520,129 @@ export default function App() {
                 <Text style={styles.sendBtnText}>➤</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Dropdown Menu */}
+      <Modal visible={menuOpen} animationType="fade" transparent>
+        <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={() => setMenuOpen(false)}>
+          <View style={styles.menuCard}>
+            <View style={styles.menuHeader}>
+              <View style={[styles.menuAvatar, {backgroundColor: avatarColor}]}>
+                <Text style={styles.menuAvatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>
+              </View>
+              <View style={{flex: 1}}>
+                <Text style={styles.menuName}>{username}</Text>
+                <Text style={styles.menuEmail} numberOfLines={1}>{email}</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setProfileOpen(true);}}>
+              <Text style={styles.menuItemIcon}>👤</Text>
+              <Text style={styles.menuItemText}>Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setInboxOpen(true);}}>
+              <Text style={styles.menuItemIcon}>💬</Text>
+              <Text style={styles.menuItemText}>Inbox</Text>
+              {inboxChats.length > 0 && (
+                <View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{inboxChats.length}</Text></View>
+              )}
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); signOut(auth);}}>
+              <Text style={styles.menuItemIcon}>🚪</Text>
+              <Text style={[styles.menuItemText, {color: '#D4537E'}]}>Log out</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Profile Page */}
+      <Modal visible={profileOpen} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={styles.detModal}>
+            <View style={styles.detHeader}>
+              <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>My Profile</Text>
+              <TouchableOpacity onPress={() => setProfileOpen(false)}>
+                <Text style={styles.closeX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView>
+              <View style={{alignItems: 'center', marginVertical: 16}}>
+                <View style={[styles.profileAvatar, {backgroundColor: avatarColor}]}>
+                  <Text style={styles.profileAvatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>
+                </View>
+                <Text style={styles.profileName}>{username}</Text>
+                <Text style={styles.profileEmail}>{email}</Text>
+              </View>
+
+              <Text style={styles.postLabel}>Choose your profile picture</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 12}}>
+                {AVATAR_EMOJIS.map(em => (
+                  <TouchableOpacity key={em} onPress={() => saveAvatar(em, avatarColor)}
+                    style={[styles.emojiPick, avatarEmoji === em && styles.emojiPickActive]}>
+                    <Text style={{fontSize: 22}}>{em}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.postLabel}>Background colour</Text>
+              <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16}}>
+                {AVATAR_COLORS.map(c => (
+                  <TouchableOpacity key={c} onPress={() => saveAvatar(avatarEmoji || '🏆', c)}
+                    style={[styles.colorPick, {backgroundColor: c}, avatarColor === c && styles.colorPickActive]} />
+                ))}
+              </View>
+
+              <View style={styles.profileInfoBox}>
+                <Text style={styles.profileInfoLabel}>Username</Text>
+                <Text style={styles.profileInfoValue}>{username}</Text>
+              </View>
+              <View style={styles.profileInfoBox}>
+                <Text style={styles.profileInfoLabel}>Email</Text>
+                <Text style={styles.profileInfoValue}>{email}</Text>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Inbox */}
+      <Modal visible={inboxOpen} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={[styles.detModal, {maxHeight: '85%'}]}>
+            <View style={styles.detHeader}>
+              <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>Inbox</Text>
+              <TouchableOpacity onPress={() => setInboxOpen(false)}>
+                <Text style={styles.closeX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {inboxChats.length === 0 ? (
+              <View style={{alignItems: 'center', paddingVertical: 50}}>
+                <Text style={{fontSize: 34, marginBottom: 10}}>💬</Text>
+                <Text style={{fontWeight: '500', color: TEXT, marginBottom: 4}}>No messages yet</Text>
+                <Text style={{fontSize: 13, color: TEXT2}}>Message a seller to start chatting</Text>
+              </View>
+            ) : (
+              <ScrollView>
+                {inboxChats.map(chat => {
+                  const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
+                  return (
+                    <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
+                      <View style={[styles.convoAvatar, {backgroundColor: chat.listingBg || BG2}]}>
+                        <Text style={{fontSize: 20}}>{chat.listingEmoji || '🏆'}</Text>
+                      </View>
+                      <View style={{flex: 1, minWidth: 0}}>
+                        <Text style={styles.convoName} numberOfLines={1}>{otherName}</Text>
+                        <Text style={styles.convoItem} numberOfLines={1}>{chat.listingTitle}</Text>
+                        <Text style={styles.convoLast} numberOfLines={1}>{chat.lastMessage || 'No messages yet'}</Text>
+                      </View>
+                      <Text style={styles.convoPrice}>${chat.listingPrice}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
           </View>
         </View>
       </Modal>
@@ -530,4 +739,37 @@ const styles = StyleSheet.create({
   avatarText: {fontSize: 13, fontWeight: '700', color: GOLD_TEXT},
   soldBtn: {backgroundColor: '#27500A', borderRadius: 10, paddingVertical: 13, alignItems: 'center'},
   soldBtnText: {color: 'white', fontSize: 15, fontWeight: '600'},
+  // Dropdown menu
+  menuBackdrop: {flex: 1, backgroundColor: 'rgba(0,0,0,0.3)'},
+  menuCard: {position: 'absolute', top: 56, right: 12, backgroundColor: BG, borderRadius: 12, paddingVertical: 6, width: 240, borderWidth: 0.5, borderColor: BORDER, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: {width: 0, height: 4}, elevation: 6},
+  menuHeader: {flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: 0.5, borderBottomColor: BORDER, marginBottom: 4},
+  menuAvatar: {width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: GOLD},
+  menuAvatarText: {fontSize: 18, fontWeight: '700', color: GOLD_TEXT},
+  menuName: {fontSize: 14, fontWeight: '600', color: TEXT},
+  menuEmail: {fontSize: 12, color: TEXT2},
+  menuItem: {flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14},
+  menuItemIcon: {fontSize: 17},
+  menuItemText: {fontSize: 14, color: TEXT, fontWeight: '500', flex: 1},
+  menuBadge: {backgroundColor: GOLD, borderRadius: 10, minWidth: 20, paddingHorizontal: 6, paddingVertical: 1, alignItems: 'center'},
+  menuBadgeText: {color: 'white', fontSize: 11, fontWeight: '700'},
+  menuDivider: {height: 0.5, backgroundColor: BORDER, marginVertical: 4},
+  // Profile
+  profileAvatar: {width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: GOLD, marginBottom: 12},
+  profileAvatarText: {fontSize: 38, fontWeight: '700', color: GOLD_TEXT},
+  profileName: {fontSize: 20, fontWeight: '600', color: TEXT},
+  profileEmail: {fontSize: 13, color: TEXT2, marginTop: 2},
+  emojiPick: {width: 46, height: 46, borderRadius: 23, backgroundColor: BG2, alignItems: 'center', justifyContent: 'center', marginRight: 8, borderWidth: 1, borderColor: 'transparent'},
+  emojiPickActive: {borderColor: GOLD, backgroundColor: GOLD_LIGHT},
+  colorPick: {width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: 'transparent'},
+  colorPickActive: {borderColor: GOLD},
+  profileInfoBox: {backgroundColor: BG2, borderRadius: 10, padding: 12, marginBottom: 10},
+  profileInfoLabel: {fontSize: 11, color: TEXT2, marginBottom: 2},
+  profileInfoValue: {fontSize: 15, color: TEXT, fontWeight: '500'},
+  // Inbox
+  convoRow: {flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: BORDER},
+  convoAvatar: {width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center'},
+  convoName: {fontSize: 14, fontWeight: '600', color: TEXT},
+  convoItem: {fontSize: 12, color: GOLD, marginTop: 1},
+  convoLast: {fontSize: 12, color: TEXT2, marginTop: 1},
+  convoPrice: {fontSize: 15, fontWeight: '700', color: GOLD},
 });
