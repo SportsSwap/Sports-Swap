@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
 } from 'react-native';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { db, auth } from './firebase';
@@ -55,6 +56,9 @@ const SPORTS = [
 // Listings now come from Firebase in real time — no dummy data
 
 const QUICK_MSGS = ['Is this still available?', "What's your best price?", 'Can I pick up locally?', 'Any more photos?'];
+
+// Google Form where companies apply to advertise
+const AD_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeWaKXksc7LeElZjiEdcw9WYRahrYvIUYcHqYgguC7XtE5T-Q/viewform';
 
 const AVATAR_EMOJIS = ['🏆', '⚽', '🏀', '🎾', '🏈', '🏐', '🏉', '⛳', '🏏', '🥊', '🏄', '🚴', '🏊', '⛷️', '🏋️', '😎', '🔥', '⭐', '👟', '🧢'];
 const AVATAR_COLORS = ['#EAF3DE', '#FAEEDA', '#E6F1FB', '#FAECE7', '#EEEDFE', '#FCEBEB', '#FBF1D6', '#E0F2F1'];
@@ -368,17 +372,20 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      {/* Ad Banner */}
-      <View style={styles.adBanner}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {[1, 2, 3, 4].map(i => (
+      {/* Ad Banner — tap to open the advertiser sign-up form */}
+      <TouchableOpacity activeOpacity={0.7} style={styles.adBanner} onPress={() => Linking.openURL(AD_FORM_URL)}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{alignItems: 'center'}}>
+          {[1, 2, 3].map(i => (
             <View key={i} style={styles.adItem}>
               <Text style={styles.adLabel}>AD</Text>
-              <Text style={styles.adText}>Your ad here — contact us to advertise</Text>
+              <Text style={styles.adText}>Your ad here</Text>
             </View>
           ))}
+          <View style={styles.adCta}>
+            <Text style={styles.adCtaText}>📣 Want to advertise? Tap here to apply →</Text>
+          </View>
         </ScrollView>
-      </View>
+      </TouchableOpacity>
 
       {/* Sport tabs */}
       <View style={styles.sportNavWrap}>
@@ -793,6 +800,8 @@ const styles = StyleSheet.create({
   adItem: {flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, height: 34, borderRightWidth: 0.5, borderRightColor: BORDER},
   adLabel: {fontSize: 9, fontWeight: '700', color: GOLD, backgroundColor: GOLD_LIGHT, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1},
   adText: {fontSize: 12, color: TEXT2},
+  adCta: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 34, backgroundColor: GOLD_LIGHT},
+  adCtaText: {fontSize: 12, color: GOLD_TEXT, fontWeight: '600'},
   sportNavWrap: {backgroundColor: BG, borderBottomWidth: 0.5, borderBottomColor: BORDER},
   sportNav: {paddingHorizontal: 8},
   sportTab: {paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 5, borderBottomWidth: 2, borderBottomColor: 'transparent'},
