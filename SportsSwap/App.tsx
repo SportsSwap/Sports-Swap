@@ -217,7 +217,7 @@ export default function App() {
       <View style={styles.sportNavWrap}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sportNav}>
           {sortedSports.map(s => {
-            const count = s.id === 'all' ? LISTINGS.length : LISTINGS.filter(l => l.sport === s.id).length;
+            const count = s.id === 'all' ? listings.length : listings.filter(l => l.sport === s.id).length;
             return (
               <TouchableOpacity
                 key={s.id}
