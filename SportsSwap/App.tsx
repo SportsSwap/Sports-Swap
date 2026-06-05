@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -13,8 +13,10 @@ import {
   StatusBar,
   ActivityIndicator,
 } from 'react-native';
-import { db } from './firebase';
-import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from './firebase';
+import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import AuthScreen from './AuthScreen';
 
 const {width} = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -58,6 +60,9 @@ function condLabel(c: string) {
 }
 
 export default function App() {
+  const [user, setUser] = useState<any>(null);
+  const [username, setUsername] = useState('');
+  const [authLoading, setAuthLoading] = useState(true);
   const [activeSport, setActiveSport] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedListing, setSelectedListing] = useState<any>(null);
@@ -74,6 +79,32 @@ export default function App() {
   const [newSport, setNewSport] = useState('football');
   const [newLoc, setNewLoc] = useState('');
   const [newCond, setNewCond] = useState('used');
+
+  // Listen for auth state
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async u => {
+      setUser(u);
+      if (u) {
+        const snap = await getDoc(doc(db, 'users', u.uid));
+        if (snap.exists()) setUsername(snap.data().username || 'User');
+      }
+      setAuthLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  // Show loading spinner while checking auth
+  if (authLoading) {
+    return (
+      <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#eeece8'}}>
+        <Text style={{fontSize: 40, marginBottom: 12}}>🏆</Text>
+        <ActivityIndicator size="large" color="#C8961E" />
+      </View>
+    );
+  }
+
+  // Show auth screen if not logged in
+  if (!user) return <AuthScreen />;
 
   // Load listings from Firebase in real time
   useEffect(() => {
@@ -95,7 +126,8 @@ export default function App() {
       sport: newSport,
       cond: newCond,
       loc: newLoc || 'Unknown',
-      seller: 'You',
+      seller: username,
+      sellerId: user.uid,
       bg: sport?.bg || '#EAF3DE',
       emoji: sport?.emoji || '🏆',
       createdAt: serverTimestamp(),
@@ -162,6 +194,9 @@ export default function App() {
         </View>
         <TouchableOpacity style={styles.sellBtn} onPress={() => setPostOpen(true)}>
           <Text style={styles.sellBtnText}>+ Sell</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => signOut(auth)} style={styles.avatarBtn}>
+          <Text style={styles.avatarText}>{username.charAt(0).toUpperCase()}</Text>
         </TouchableOpacity>
       </View>
 
@@ -465,4 +500,6 @@ const styles = StyleSheet.create({
   sportPillActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
   sportPillText: {fontSize: 12, color: TEXT2},
   sportPillTextActive: {color: GOLD_TEXT, fontWeight: '500'},
+  avatarBtn: {width: 32, height: 32, borderRadius: 16, backgroundColor: GOLD_LIGHT, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: GOLD},
+  avatarText: {fontSize: 13, fontWeight: '700', color: GOLD_TEXT},
 });
