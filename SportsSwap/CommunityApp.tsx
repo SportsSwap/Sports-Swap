@@ -24,15 +24,26 @@ const BORDER = 'rgba(0,0,0,0.12)';
 
 const SPORTS = [
   {id: 'football', label: 'Football', bg: '#EAF3DE'},
+  {id: 'afl', label: 'AFL', bg: '#FAEEDA'},
+  {id: 'rugby', label: 'Rugby', bg: '#FAECE7'},
   {id: 'basketball', label: 'Basketball', bg: '#FAEEDA'},
-  {id: 'tennis', label: 'Tennis', bg: '#EAF3DE'},
-  {id: 'cycling', label: 'Cycling', bg: '#E6F1FB'},
-  {id: 'swimming', label: 'Swimming', bg: '#E6F1FB'},
-  {id: 'running', label: 'Running', bg: '#FAECE7'},
-  {id: 'gym', label: 'Gym', bg: '#EEEDFE'},
+  {id: 'netball', label: 'Netball', bg: '#FCEBEB'},
   {id: 'cricket', label: 'Cricket', bg: '#EAF3DE'},
+  {id: 'tennis', label: 'Tennis', bg: '#EAF3DE'},
   {id: 'golf', label: 'Golf', bg: '#EAF3DE'},
+  {id: 'swimming', label: 'Swimming', bg: '#E6F1FB'},
   {id: 'surf', label: 'Surfing', bg: '#E6F1FB'},
+  {id: 'surflifesaving', label: 'Surf life saving', bg: '#E6F1FB'},
+  {id: 'cycling', label: 'Cycling', bg: '#E6F1FB'},
+  {id: 'running', label: 'Cross country', bg: '#FAECE7'},
+  {id: 'athletics', label: 'Athletics', bg: '#FAECE7'},
+  {id: 'fieldhockey', label: 'Field hockey', bg: '#EAF3DE'},
+  {id: 'icehockey', label: 'Ice hockey', bg: '#E6F1FB'},
+  {id: 'baseball', label: 'Baseball', bg: '#FAEEDA'},
+  {id: 'volleyball', label: 'Volleyball', bg: '#FCEBEB'},
+  {id: 'skiing', label: 'Snow sports', bg: '#E6F1FB'},
+  {id: 'gym', label: 'Gym', bg: '#EEEDFE'},
+  {id: 'martial', label: 'Martial arts', bg: '#FCEBEB'},
 ];
 const sportOf = (id: string) => SPORTS.find(s => s.id === id);
 
