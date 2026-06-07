@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SportsSwap App Icon Generator</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1c1c1a; color: #f0ede8; margin: 0; padding: 30px; text-align: center; }
+  h1 { color: #C8961E; font-size: 22px; }
+  p { color: #a0a09a; font-size: 14px; max-width: 460px; margin: 8px auto 20px; line-height: 1.5; }
+  .preview { width: 260px; height: 260px; border-radius: 56px; margin: 10px auto; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+  canvas { display: none; }
+  .styles { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 16px 0; }
+  .style-btn { background: #2e2e2b; border: 1px solid #444; color: #f0ede8; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .style-btn.active { background: #C8961E; border-color: #C8961E; color: #fff; font-weight: 600; }
+  .download { background: #C8961E; color: #fff; border: none; padding: 14px 28px; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 10px; }
+  .download:hover { background: #9A6E12; }
+</style>
+</head>
+<body>
+  <h1>🏆 SportsSwap App Icon</h1>
+  <p>Pick a style, then click download. It saves a 1024×1024 PNG — exactly what the App Store needs.</p>
+
+  <img id="preview" class="preview" alt="icon preview">
+  <canvas id="canvas" width="1024" height="1024"></canvas>
+
+  <div class="styles">
+    <button class="style-btn active" data-style="trophy">Trophy</button>
+    <button class="style-btn" data-style="monogram">SS Monogram</button>
+    <button class="style-btn" data-style="wordmark">Wordmark</button>
+  </div>
+
+  <div>
+    <button class="download" onclick="downloadIcon()">⬇ Download icon (1024×1024)</button>
+  </div>
+
+<script>
+const cv = document.getElementById('canvas');
+const ctx = cv.getContext('2d');
+let style = 'trophy';
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function draw() {
+  const S = 1024;
+  // Gold gradient background
+  const g = ctx.createLinearGradient(0, 0, S, S);
+  g.addColorStop(0, '#E3B948');
+  g.addColorStop(1, '#9A6E12');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  if (style === 'trophy') {
+    // soft white glow
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,255,255,0.55)';
+    ctx.shadowBlur = 60;
+    ctx.font = '620px -apple-system, "Segoe UI Emoji", sans-serif';
+    ctx.fillText('🏆', S / 2, S / 2 + 30);
+    ctx.restore();
+  } else if (style === 'monogram') {
+    // white rounded panel + SS
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    roundRect(212, 212, 600, 600, 120); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 440px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillText('SS', S / 2, S / 2 + 20);
+  } else {
+    // wordmark
+    ctx.font = '420px -apple-system, "Segoe UI Emoji", sans-serif';
+    ctx.fillText('🏆', S / 2, 360);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 120px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillText('SportsSwap', S / 2, 730);
+  }
+  document.getElementById('preview').src = cv.toDataURL('image/png');
+}
+
+document.querySelectorAll('.style-btn').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.style-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    style = b.dataset.style;
+    draw();
+  };
+});
+
+function downloadIcon() {
+  const a = document.createElement('a');
+  a.download = 'SportsSwap-icon-1024.png';
+  a.href = cv.toDataURL('image/png');
+  a.click();
+}
+
+draw();
+</script>
+</body>
+</html>
