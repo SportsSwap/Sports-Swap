@@ -87,6 +87,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   const [composer, setComposer] = useState<any>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [friends, setFriends] = useState<any[]>([]);
+  const [sportFilter, setSportFilter] = useState('all');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [viewUser, setViewUser] = useState<any>(null);
 
   // Live data from Firebase
   useEffect(() => {
@@ -97,7 +101,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     const u2 = onSnapshot(collection(db, 'groups'), snap => {
       setGroups(snap.docs.map(d => ({id: d.id, ...d.data()})));
     });
-    return () => { u1(); u2(); };
+    const u3 = onSnapshot(collection(db, 'friends'), snap => {
+      setFriends(snap.docs.map(d => ({id: d.id, ...d.data()})));
+    });
+    return () => { u1(); u2(); u3(); };
   }, []);
 
   const thread = posts.find(p => p.id === threadId);
@@ -105,6 +112,23 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   const isMod = (g: any) => g && g.creatorId === uid;
   const isJoined = (g: any) => !!(g && (g.roster || []).some((m: any) => m.id === uid));
   const memberCount = (g: any) => (g.roster || []).length;
+
+  // ----- Friends (mutual, must be accepted on both ends) -----
+  const myFriends = friends.filter(f => f.status === 'accepted' && (f.fromId === uid || f.toId === uid));
+  const incomingReqs = friends.filter(f => f.status === 'pending' && f.toId === uid);
+  function relationWith(otherId: string) {
+    const f = friends.find(x => (x.fromId === uid && x.toId === otherId) || (x.fromId === otherId && x.toId === uid));
+    if (!f) return {state: 'none', id: ''};
+    if (f.status === 'accepted') return {state: 'friends', id: f.id};
+    if (f.fromId === uid) return {state: 'sent', id: f.id};
+    return {state: 'incoming', id: f.id};
+  }
+  async function addFriend(other: any) {
+    if (other.id === uid || relationWith(other.id).state !== 'none') return;
+    await addDoc(collection(db, 'friends'), {fromId: uid, fromName: username, toId: other.id, toName: other.name, status: 'pending', createdAt: serverTimestamp()});
+  }
+  const acceptFriend = (id: string) => updateDoc(doc(db, 'friends', id), {status: 'accepted'});
+  const removeFriendDoc = (id: string) => deleteDoc(doc(db, 'friends', id));
 
   async function votePost(p: any, dir: number) {
     const cur = myVotes[p.id] || 0;
@@ -127,7 +151,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
       <TouchableOpacity style={styles.card} onPress={onOpen} activeOpacity={0.9}>
         {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>📢 Announcement</Text></View>}
         <View style={styles.cardHead}>
-          <Avatar name={p.authorName} size={40} photo={p.authorId === uid ? profile.photo : null} />
+          <TouchableOpacity onPress={() => setViewUser({id: p.authorId, name: p.authorName, sport: p.sport})}>
+            <Avatar name={p.authorName} size={40} photo={p.authorId === uid ? profile.photo : null} />
+          </TouchableOpacity>
           <View style={{flex: 1, marginLeft: 10}}>
             <Text style={styles.author}>{p.authorName}</Text>
             <Text style={styles.meta}>just now</Text>
@@ -152,13 +178,23 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   // ---------- COMMUNITY FEED ----------
   function CommunityFeed() {
     const q = search.trim().toLowerCase();
-    const feed = posts.filter(p => !p.groupId && (!q || (p.text || '').toLowerCase().includes(q) || (p.authorName || '').toLowerCase().includes(q)));
+    const feed = posts.filter(p => !p.groupId
+      && (sportFilter === 'all' || p.sport === sportFilter)
+      && (!q || (p.text || '').toLowerCase().includes(q) || (p.authorName || '').toLowerCase().includes(q)));
     return (
       <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 90}}>
         <TouchableOpacity style={styles.composerBar} onPress={() => setComposer({target: 'community'})}>
           <Avatar name={username} size={34} photo={profile.photo} />
           <Text style={styles.composerPh}>Share news, tips or a question…</Text>
         </TouchableOpacity>
+
+        {/* Sport filter dropdown */}
+        <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14}}>
+          <Text style={[styles.sectionLabel, {marginBottom: 0}]}>Feed</Text>
+          <TouchableOpacity style={styles.filterBtn} onPress={() => setFilterOpen(true)}>
+            <Text style={styles.filterBtnText}>{sportFilter === 'all' ? 'All sports' : sportOf(sportFilter)?.label}  ▾</Text>
+          </TouchableOpacity>
+        </View>
 
         <Text style={styles.sectionLabel}>Discussion groups</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 16}}>
@@ -438,6 +474,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
             <Avatar name={username} size={72} photo={profile.photo} />
             <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-around'}}>
               <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{myPosts.length}</Text><Text style={styles.meta}>Posts</Text></View>
+              <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{myFriends.length}</Text><Text style={styles.meta}>Friends</Text></View>
               <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{joined.length}</Text><Text style={styles.meta}>Groups</Text></View>
             </View>
           </View>
@@ -457,6 +494,21 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
             </View>
           )}
         </View>
+
+        {incomingReqs.length > 0 && (
+          <View style={[styles.pageCard, {marginTop: 14}]}>
+            <Text style={styles.infoTitle}>FRIEND REQUESTS</Text>
+            {incomingReqs.map(r => (
+              <View key={r.id} style={[styles.memberRow, {paddingVertical: 8}]}>
+                <Avatar name={r.fromName} size={36} />
+                <Text style={{flex: 1, marginLeft: 10, fontSize: 14, color: TEXT}}>{r.fromName}</Text>
+                <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold, {paddingVertical: 6, paddingHorizontal: 14}]} onPress={() => acceptFriend(r.id)}><Text style={[styles.smallBtnText, {color: '#fff', fontSize: 13}]}>Accept</Text></TouchableOpacity>
+                <TouchableOpacity style={{marginLeft: 10}} onPress={() => removeFriendDoc(r.id)}><Text style={{color: '#B23', fontSize: 13, fontWeight: '600'}}>Decline</Text></TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
         <View style={styles.profileTabs}>
           <TouchableOpacity style={[styles.pTab, profileTab === 'posts' && styles.pTabActive]} onPress={() => setProfileTab('posts')}><Text style={[styles.pTabText, profileTab === 'posts' && {color: GOLD}]}>Posts</Text></TouchableOpacity>
           <TouchableOpacity style={[styles.pTab, profileTab === 'replies' && styles.pTabActive]} onPress={() => setProfileTab('replies')}><Text style={[styles.pTabText, profileTab === 'replies' && {color: GOLD}]}>Replies</Text></TouchableOpacity>
@@ -524,6 +576,51 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
       {composer && <Composer />}
       {createOpen && <CreateGroup />}
       {editOpen && <EditProfile />}
+
+      {/* Sport filter dropdown */}
+      {filterOpen && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setFilterOpen(false)}>
+          <View style={styles.overlay}><View style={styles.sheet}>
+            <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Filter by sport</Text><TouchableOpacity onPress={() => setFilterOpen(false)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+            <ScrollView>
+              <TouchableOpacity style={styles.filterOption} onPress={() => { setSportFilter('all'); setFilterOpen(false); }}>
+                <Text style={styles.filterOptionText}>All sports</Text>{sportFilter === 'all' && <Text style={{color: GOLD, fontWeight: '700'}}>✓</Text>}
+              </TouchableOpacity>
+              {SPORTS.map(s => (
+                <TouchableOpacity key={s.id} style={styles.filterOption} onPress={() => { setSportFilter(s.id); setFilterOpen(false); }}>
+                  <View style={{flexDirection: 'row', alignItems: 'center'}}><View style={[styles.sportDot, {backgroundColor: s.bg}]} /><Text style={styles.filterOptionText}>{s.label}</Text></View>
+                  {sportFilter === s.id && <Text style={{color: GOLD, fontWeight: '700'}}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View></View>
+        </Modal>
+      )}
+
+      {/* Mini profile + add friend */}
+      {viewUser && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setViewUser(null)}>
+          <View style={styles.overlay}><View style={styles.sheet}>
+            <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Profile</Text><TouchableOpacity onPress={() => setViewUser(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+            <View style={{alignItems: 'center', paddingVertical: 10}}>
+              <Avatar name={viewUser.name} size={72} photo={viewUser.id === uid ? profile.photo : null} />
+              <Text style={[styles.groupTitle, {marginTop: 10}]}>{viewUser.name}</Text>
+              <Text style={styles.meta}>{sportOf(viewUser.sport)?.label || ''}</Text>
+            </View>
+            {viewUser.id === uid ? (
+              <Text style={{textAlign: 'center', color: TEXT2, padding: 12}}>This is you</Text>
+            ) : relationWith(viewUser.id).state === 'friends' ? (
+              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnAlt]} onPress={() => removeFriendDoc(relationWith(viewUser.id).id)}><Text style={styles.smallBtnText}>✓ Friends — tap to remove</Text></TouchableOpacity>
+            ) : relationWith(viewUser.id).state === 'sent' ? (
+              <View style={[styles.smallBtn, styles.smallBtnAlt]}><Text style={styles.smallBtnText}>Friend request sent</Text></View>
+            ) : relationWith(viewUser.id).state === 'incoming' ? (
+              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold]} onPress={() => acceptFriend(relationWith(viewUser.id).id)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>Accept friend request</Text></TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold]} onPress={() => addFriend(viewUser)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>+ Add friend</Text></TouchableOpacity>
+            )}
+          </View></View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -607,4 +704,8 @@ const styles = StyleSheet.create({
   pTab: {flex: 1, alignItems: 'center', paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: 'transparent'},
   pTabActive: {borderBottomColor: GOLD},
   pTabText: {fontSize: 14, fontWeight: '600', color: TEXT2},
+  filterBtn: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7},
+  filterBtnText: {fontSize: 13, fontWeight: '600', color: TEXT},
+  filterOption: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderTopWidth: 0.5, borderTopColor: BORDER},
+  filterOptionText: {fontSize: 15, color: TEXT},
 });
