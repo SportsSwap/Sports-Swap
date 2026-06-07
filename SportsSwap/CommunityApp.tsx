@@ -114,6 +114,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const [viewUser, setViewUser] = useState<any>(null);
   const [eventGroup, setEventGroup] = useState<any>(null);
   const [sharePost, setSharePost] = useState<any>(null);
+  const [listView, setListView] = useState<string | null>(null);
 
   // Live data from Firebase
   useEffect(() => {
@@ -150,11 +151,22 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   async function follow(other: any) {
     if (other.id === uid || isFollowing(other.id)) return;
     await addDoc(collection(db, 'follows'), {followerId: uid, followerName: username, followingId: other.id, followingName: other.name, createdAt: serverTimestamp()});
+    // Notify them in their inbox
+    const chatId = 'dm_' + [uid, other.id].sort().join('_');
+    await setDoc(doc(db, 'chats', chatId), {
+      participants: [uid, other.id], sellerId: other.id, sellerName: other.name, buyerId: uid, buyerName: username,
+      listingTitle: 'New follower', listingPrice: '', listingEmoji: '', listingBg: '#FBF1D6',
+      lastMessage: username + ' started following you', updatedAt: serverTimestamp(),
+    }, {merge: true});
+    await addDoc(collection(db, 'chats', chatId, 'messages'), {
+      senderId: uid, senderName: username, text: username + ' started following you!', createdAt: serverTimestamp(),
+    });
   }
   async function unfollow(otherId: string) {
     const id = followDocId(otherId);
     if (id) await deleteDoc(doc(db, 'follows', id));
   }
+  const removeFollowDoc = (id: string) => deleteDoc(doc(db, 'follows', id));
 
   async function votePost(p: any, dir: number) {
     const cur = myVotes[p.id] || 0;
@@ -692,8 +704,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             <Avatar name={username} size={72} photo={profile.photo} />
             <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-around'}}>
               <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{myPosts.length}</Text><Text style={styles.meta}>Posts</Text></View>
-              <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{followerCount}</Text><Text style={styles.meta}>Followers</Text></View>
-              <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{followingCount}</Text><Text style={styles.meta}>Following</Text></View>
+              <TouchableOpacity style={{alignItems: 'center'}} onPress={() => setListView('followers')}><Text style={styles.statNum}>{followerCount}</Text><Text style={styles.meta}>Followers</Text></TouchableOpacity>
+              <TouchableOpacity style={{alignItems: 'center'}} onPress={() => setListView('following')}><Text style={styles.statNum}>{followingCount}</Text><Text style={styles.meta}>Following</Text></TouchableOpacity>
             </View>
           </View>
           <Text style={[styles.groupTitle, {marginTop: 12}]}>{username}</Text>
@@ -752,6 +764,44 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     );
   }
 
+  // ---------- ANOTHER USER'S PROFILE PAGE ----------
+  function UserProfilePage() {
+    const u = viewUser; if (!u) return null;
+    const userData = users.find(x => x.id === u.id);
+    const sp = sportOf((userData && userData.mainSport) || u.sport);
+    const theirPosts = posts.filter(p => p.authorId === u.id && !p.groupId && !p.announcement);
+    const theirFollowers = follows.filter(f => f.followingId === u.id).length;
+    const theirFollowing = follows.filter(f => f.followerId === u.id).length;
+    const isMe = u.id === uid;
+    return (
+      <Modal visible animationType="slide" onRequestClose={() => setViewUser(null)}>
+        <View style={{flex: 1, backgroundColor: BG3}}>
+          <View style={styles.topbar}><TouchableOpacity style={styles.backBtn} onPress={() => setViewUser(null)}><Text style={styles.backText}>← Back</Text></TouchableOpacity></View>
+          <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 50}}>
+            <View style={styles.pageCard}>
+              <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                <Avatar name={u.name} size={72} photo={isMe ? profile.photo : null} />
+                <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-around'}}>
+                  <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{theirPosts.length}</Text><Text style={styles.meta}>Posts</Text></View>
+                  <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{theirFollowers}</Text><Text style={styles.meta}>Followers</Text></View>
+                  <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{theirFollowing}</Text><Text style={styles.meta}>Following</Text></View>
+                </View>
+              </View>
+              <Text style={[styles.groupTitle, {marginTop: 12}]}>{u.name}</Text>
+              {sp && <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 2}}><View style={[styles.sportDot, {backgroundColor: sp.bg}]} /><Text style={styles.meta}>  {sp.label}</Text></View>}
+              {!isMe && (isFollowing(u.id)
+                ? <Btn style={[styles.smallBtn, styles.smallBtnAlt, {marginTop: 14}]} onPress={() => unfollow(u.id)}><Text style={styles.smallBtnText}>Following — tap to unfollow</Text></Btn>
+                : <Btn style={[styles.smallBtn, styles.smallBtnGold, {marginTop: 14}]} onPress={() => follow(u)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>+ Follow</Text></Btn>
+              )}
+            </View>
+            <Text style={[styles.sectionLabel, {marginTop: 16}]}>{isMe ? 'Your posts' : 'Posts'}</Text>
+            {theirPosts.length ? theirPosts.map(p => <PostCard key={p.id} p={p} onOpen={() => { setViewUser(null); setThreadId(p.id); }} />) : <Text style={styles.noResult}>No posts yet.</Text>}
+          </ScrollView>
+        </View>
+      </Modal>
+    );
+  }
+
   return (
     <SafeAreaView style={{flex: 1, backgroundColor: BG3}}>
       {/* Header */}
@@ -759,7 +809,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         <View style={styles.headerRow}>
           <Logo colors={c} />
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 14}}>
-            <TouchableOpacity onPress={() => onInbox && onInbox()}><Text style={{fontSize: 22}}>💬</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onInbox && onInbox()}><Text style={{fontSize: 13, fontWeight: '600', color: TEXT2}}>Inbox</Text></TouchableOpacity>
             <TouchableOpacity onPress={() => onMenu && onMenu()}><Avatar name={username} size={32} photo={profile.photo} /></TouchableOpacity>
           </View>
         </View>
@@ -803,23 +853,31 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         </Modal>
       )}
 
-      {/* Mini profile + add friend */}
-      {viewUser && (
-        <Modal visible transparent animationType="slide" onRequestClose={() => setViewUser(null)}>
+      {/* Full profile page */}
+      {viewUser && <UserProfilePage />}
+
+      {/* Followers / Following list */}
+      {listView && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setListView(null)}>
           <View style={styles.overlay}><View style={styles.sheet}>
-            <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Profile</Text><TouchableOpacity onPress={() => setViewUser(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
-            <View style={{alignItems: 'center', paddingVertical: 10}}>
-              <Avatar name={viewUser.name} size={72} photo={viewUser.id === uid ? profile.photo : null} />
-              <Text style={[styles.groupTitle, {marginTop: 10}]}>{viewUser.name}</Text>
-              <Text style={styles.meta}>{sportOf(viewUser.sport)?.label || ''}</Text>
-            </View>
-            {viewUser.id === uid ? (
-              <Text style={{textAlign: 'center', color: TEXT2, padding: 12}}>This is you</Text>
-            ) : isFollowing(viewUser.id) ? (
-              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnAlt]} onPress={() => unfollow(viewUser.id)}><Text style={styles.smallBtnText}>✓ Following — tap to unfollow</Text></TouchableOpacity>
-            ) : (
-              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold]} onPress={() => follow(viewUser)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>+ Follow</Text></TouchableOpacity>
-            )}
+            <View style={styles.sheetHead}><Text style={styles.sheetTitle}>{listView === 'followers' ? 'Followers' : 'Following'}</Text><TouchableOpacity onPress={() => setListView(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+            <ScrollView>
+              {(listView === 'followers'
+                ? follows.filter(f => f.followingId === uid).map(f => ({docId: f.id, id: f.followerId, name: f.followerName}))
+                : follows.filter(f => f.followerId === uid).map(f => ({docId: f.id, id: f.followingId, name: f.followingName}))
+              ).map(person => (
+                <View key={person.docId} style={styles.shareRow}>
+                  <TouchableOpacity style={{flexDirection: 'row', alignItems: 'center', flex: 1}} onPress={() => { setListView(null); setViewUser({id: person.id, name: person.name, sport: ''}); }}>
+                    <Avatar name={person.name} size={38} photo={person.id === uid ? profile.photo : null} />
+                    <Text style={[styles.shareRowText, {marginLeft: 10}]}>{person.name}</Text>
+                  </TouchableOpacity>
+                  <Btn style={[styles.smallBtn, styles.smallBtnAlt, {paddingVertical: 6, paddingHorizontal: 14}]} onPress={() => removeFollowDoc(person.docId)}>
+                    <Text style={[styles.smallBtnText, {fontSize: 13}]}>{listView === 'followers' ? 'Remove' : 'Unfollow'}</Text>
+                  </Btn>
+                </View>
+              ))}
+              {((listView === 'followers' ? followerCount : followingCount) === 0) && <Text style={styles.noResult}>{listView === 'followers' ? 'No followers yet.' : 'Not following anyone yet.'}</Text>}
+            </ScrollView>
           </View></View>
         </Modal>
       )}
@@ -831,10 +889,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Share</Text><TouchableOpacity onPress={() => setSharePost(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
             <ScrollView>
               <TouchableOpacity style={styles.shareOpt} onPress={() => { setSharePost(null); Alert.alert('Link copied', 'Post link copied (preview).'); }}>
-                <Text style={styles.shareOptText}>🔗  Copy link</Text>
+                <Text style={styles.shareOptText}>Copy link</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.shareOpt} onPress={() => { const p = sharePost; setSharePost(null); repost(p); }}>
-                <Text style={styles.shareOptText}>🔁  Repost to feed</Text>
+                <Text style={styles.shareOptText}>Repost to feed</Text>
               </TouchableOpacity>
 
               <Text style={[styles.label, {marginTop: 14}]}>Share to a group</Text>

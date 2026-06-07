@@ -371,12 +371,15 @@ export default function App() {
           username={username}
           uid={user.uid}
           onInbox={() => setTab('inbox')}
-          onMenu={() => setTab('profile')}
+          onMenu={() => setMenuOpen(true)}
           colors={colors}
         />
       ) : tab === 'inbox' ? (
         <SafeAreaView style={styles.safe}>
-          <View style={[styles.header, {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}]}><Logo colors={colors} /><Text style={{fontSize: 15, fontWeight: '600', color: TEXT2}}>Inbox</Text></View>
+          <View style={[styles.header, {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}]}>
+            <Logo colors={colors} />
+            <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}><Text style={styles.avatarText}>{username.charAt(0).toUpperCase()}</Text></TouchableOpacity>
+          </View>
           {inboxChats.length === 0 ? (
             <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
               <Text style={{fontSize: 34, marginBottom: 10}}>💬</Text>
@@ -454,7 +457,7 @@ export default function App() {
                 key={s.id}
                 style={[styles.sportTab, activeSport === s.id && styles.sportTabActive]}
                 onPress={() => setActiveSport(s.id)}>
-                <Text style={styles.sportTabEmoji}>{s.emoji}</Text>
+                <View style={[styles.sportTabDot, {backgroundColor: s.bg || GOLD}]} />
                 <Text style={[styles.sportTabLabel, activeSport === s.id && styles.sportTabLabelActive]}>{s.label}</Text>
                 {count > 0 && (
                   <View style={styles.countBadge}>
@@ -597,59 +600,6 @@ export default function App() {
       </Modal>
 
       {/* Chat modal lives at root level now (renders on every tab) */}
-
-      {/* Dropdown Menu */}
-      <Modal visible={menuOpen} animationType="fade" transparent>
-        <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={() => setMenuOpen(false)}>
-          <View style={styles.menuCard}>
-            <View style={styles.menuHeader}>
-              <View style={[styles.menuAvatar, {backgroundColor: avatarColor}]}>
-                <Text style={styles.menuAvatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>
-              </View>
-              <View style={{flex: 1}}>
-                <Text style={styles.menuName}>{username}</Text>
-                <Text style={styles.menuEmail} numberOfLines={1}>{email}</Text>
-              </View>
-            </View>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setProfileOpen(true);}}>
-              <Text style={styles.menuItemIcon}>👤</Text>
-              <Text style={styles.menuItemText}>Profile</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('inbox');}}>
-              <Text style={styles.menuItemIcon}>💬</Text>
-              <Text style={styles.menuItemText}>Inbox</Text>
-              {inboxChats.length > 0 && (
-                <View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{inboxChats.length}</Text></View>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setMyListingsOpen(true);}}>
-              <Text style={styles.menuItemIcon}>🏷️</Text>
-              <Text style={styles.menuItemText}>My Listings</Text>
-              {myListings.length > 0 && (
-                <View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{myListings.length}</Text></View>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setSavedOpen(true);}}>
-              <Text style={styles.menuItemIcon}>❤️</Text>
-              <Text style={styles.menuItemText}>Saved</Text>
-              {savedListings.length > 0 && (
-                <View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{savedListings.length}</Text></View>
-              )}
-            </TouchableOpacity>
-            <View style={styles.menuDivider} />
-            <TouchableOpacity style={styles.menuItem} onPress={toggleDark}>
-              <Text style={styles.menuItemIcon}>{dark ? '☀️' : '🌙'}</Text>
-              <Text style={styles.menuItemText}>Dark mode</Text>
-              <View style={[styles.toggle, dark && styles.toggleOn]}><View style={[styles.toggleKnob, dark && styles.toggleKnobOn]} /></View>
-            </TouchableOpacity>
-            <View style={styles.menuDivider} />
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); signOut(auth);}}>
-              <Text style={styles.menuItemIcon}>🚪</Text>
-              <Text style={[styles.menuItemText, {color: '#D4537E'}]}>Log out</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* Profile Page */}
       <Modal visible={profileOpen} animationType="slide" transparent>
@@ -851,6 +801,47 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Dropdown Menu — root level, works on every tab */}
+      <Modal visible={menuOpen} animationType="fade" transparent>
+        <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={() => setMenuOpen(false)}>
+          <View style={styles.menuCard}>
+            <View style={styles.menuHeader}>
+              <View style={[styles.menuAvatar, {backgroundColor: avatarColor}]}>
+                <Text style={styles.menuAvatarText}>{username.charAt(0).toUpperCase()}</Text>
+              </View>
+              <View style={{flex: 1}}>
+                <Text style={styles.menuName}>{username}</Text>
+                <Text style={styles.menuEmail} numberOfLines={1}>{email}</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('profile');}}>
+              <Text style={styles.menuItemText}>Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('inbox');}}>
+              <Text style={styles.menuItemText}>Inbox</Text>
+              {inboxChats.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{inboxChats.length}</Text></View>)}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('market'); setMyListingsOpen(true);}}>
+              <Text style={styles.menuItemText}>My Listings</Text>
+              {myListings.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{myListings.length}</Text></View>)}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('market'); setSavedOpen(true);}}>
+              <Text style={styles.menuItemText}>Saved</Text>
+              {savedListings.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{savedListings.length}</Text></View>)}
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={toggleDark}>
+              <Text style={styles.menuItemText}>Dark mode</Text>
+              <View style={[styles.toggle, dark && styles.toggleOn]}><View style={[styles.toggleKnob, dark && styles.toggleKnobOn]} /></View>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); signOut(auth);}}>
+              <Text style={[styles.menuItemText, {color: '#D4537E'}]}>Log out</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Bottom navigation */}
       <View style={styles.bottomNav}>
         {[{id: 'community', label: 'Community'}, {id: 'market', label: 'SportsSwap'}, {id: 'inbox', label: 'Inbox'}, {id: 'profile', label: 'Profile'}].map(t => (
@@ -897,6 +888,7 @@ function makeStyles(c: any) {
   sportTab: {paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 5, borderBottomWidth: 2, borderBottomColor: 'transparent'},
   sportTabActive: {borderBottomColor: GOLD},
   sportTabEmoji: {fontSize: 14},
+  sportTabDot: {width: 9, height: 9, borderRadius: 5, marginRight: 2},
   sportTabLabel: {fontSize: 13, color: TEXT2},
   sportTabLabelActive: {color: GOLD, fontWeight: '500'},
   countBadge: {backgroundColor: GOLD_LIGHT, borderRadius: 20, paddingHorizontal: 5, paddingVertical: 1},
