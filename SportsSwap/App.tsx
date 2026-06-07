@@ -21,6 +21,7 @@ import { db, auth } from './firebase';
 import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, getDoc, deleteDoc, where, updateDoc, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AuthScreen from './AuthScreen';
+import CommunityApp from './CommunityApp';
 
 const {width} = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -73,6 +74,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(true);
+  const [tab, setTab] = useState('community'); // community | market | profile
   const [activeSport, setActiveSport] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedListing, setSelectedListing] = useState<any>(null);
@@ -348,6 +350,10 @@ export default function App() {
   const savedListings = listings.filter(l => saved.has(l.id));
 
   return (
+    <View style={{flex: 1, backgroundColor: BG3}}>
+      {tab !== 'market' ? (
+        <CommunityApp tab={tab} username={username} />
+      ) : (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={BG} />
 
@@ -784,11 +790,30 @@ export default function App() {
         </View>
       </Modal>
     </SafeAreaView>
+      )}
+
+      {/* Bottom navigation */}
+      <View style={styles.bottomNav}>
+        <TouchableOpacity style={styles.bnavBtn} onPress={() => setTab('community')}>
+          <Text style={[styles.bnavText, tab === 'community' && styles.bnavActive]}>Community</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bnavBtn} onPress={() => setTab('market')}>
+          <Text style={[styles.bnavText, tab === 'market' && styles.bnavActive]}>SportsSwap</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bnavBtn} onPress={() => setTab('profile')}>
+          <Text style={[styles.bnavText, tab === 'profile' && styles.bnavActive]}>Profile</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   safe: {flex: 1, backgroundColor: BG3},
+  bottomNav: {flexDirection: 'row', backgroundColor: BG, borderTopWidth: 0.5, borderTopColor: BORDER, paddingBottom: 24, paddingTop: 10},
+  bnavBtn: {flex: 1, alignItems: 'center'},
+  bnavText: {fontSize: 13, color: TEXT2, fontWeight: '500'},
+  bnavActive: {color: GOLD, fontWeight: '700'},
   header: {flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: BG, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: BORDER},
   logo: {fontSize: 18, fontWeight: '700', color: GOLD},
   searchWrap: {flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, gap: 6, borderWidth: 0.5, borderColor: BORDER},
