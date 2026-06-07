@@ -7,7 +7,7 @@ import {launchImageLibrary} from 'react-native-image-picker';
 import {db} from './firebase';
 import {
   collection, addDoc, onSnapshot, orderBy, query, serverTimestamp,
-  doc, updateDoc, deleteDoc,
+  doc, updateDoc, deleteDoc, setDoc,
 } from 'firebase/firestore';
 
 const GOLD = '#C8961E';
@@ -46,6 +46,20 @@ const SPORTS = [
   {id: 'martial', label: 'Martial arts', bg: '#FCEBEB'},
 ];
 const sportOf = (id: string) => SPORTS.find(s => s.id === id);
+
+// Relative time: <1h → minutes, <24h → hours, ≤7d → days, older → the date
+function timeAgo(ts: any) {
+  if (!ts || !ts.seconds) return 'just now';
+  const secs = Math.floor(Date.now() / 1000) - ts.seconds;
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return mins + 'm ago';
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  if (days <= 7) return days + 'd ago';
+  return new Date(ts.seconds * 1000).toLocaleDateString(undefined, {day: 'numeric', month: 'short', year: 'numeric'});
+}
 
 const AV_PALETTE = ['#EAF3DE', '#FAEEDA', '#E6F1FB', '#FAECE7', '#EEEDFE', '#FCEBEB'];
 function colorFor(name: string) {
@@ -104,6 +118,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   const [filterOpen, setFilterOpen] = useState(false);
   const [viewUser, setViewUser] = useState<any>(null);
   const [eventGroup, setEventGroup] = useState<any>(null);
+  const [sharePost, setSharePost] = useState<any>(null);
 
   // Live data from Firebase
   useEffect(() => {
@@ -168,6 +183,63 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   // Moderator: pin / unpin a message
   const togglePin = (p: any) => updateDoc(doc(db, 'cposts', p.id), {pinned: !p.pinned});
 
+  // Delete your own post / comment
+  function deletePost(p: any) {
+    if (p.authorId !== uid) return;
+    Alert.alert('Delete', 'Delete this permanently? This cannot be undone.', [
+      {text: 'Cancel', style: 'cancel'},
+      {text: 'Delete', style: 'destructive', onPress: async () => { await deleteDoc(doc(db, 'cposts', p.id)); setThreadId(null); }},
+    ]);
+  }
+  async function deleteComment(p: any, c: any) {
+    if (c.authorId !== uid) return;
+    const next = (p.comments || []).filter((x: any) => x !== c);
+    await updateDoc(doc(db, 'cposts', p.id), {comments: next});
+  }
+
+  // Repost to the community feed
+  function repost(p: any) {
+    Alert.alert('Repost', 'Repost this to the community feed?', [
+      {text: 'Cancel', style: 'cancel'},
+      {text: 'Repost', onPress: async () => {
+        await addDoc(collection(db, 'cposts'), {
+          authorId: uid, authorName: username, sport: p.sport, kind: p.kind || 'post',
+          text: p.text || '', photo: p.photo || null, repostFrom: p.repostFrom || p.authorName,
+          announcement: false, votes: 0, comments: [], createdAt: serverTimestamp(),
+        });
+        Alert.alert('Reposted', 'Shared to the feed.');
+      }},
+    ]);
+  }
+
+  const myGroups = groups.filter(g => isJoined(g));
+  const myFollowers = follows.filter(f => f.followingId === uid).map(f => ({id: f.followerId, name: f.followerName}));
+
+  async function shareToGroup(p: any, g: any) {
+    await addDoc(collection(db, 'cposts'), {
+      authorId: uid, authorName: username, sport: p.sport, groupId: g.id, kind: p.kind || 'post',
+      text: p.text || '', photo: p.photo || null, repostFrom: p.repostFrom || p.authorName,
+      announcement: false, votes: 0, comments: [], createdAt: serverTimestamp(),
+    });
+    setSharePost(null);
+    Alert.alert('Shared', `Posted to ${g.name}.`);
+  }
+  async function shareToFollower(p: any, f: any) {
+    const chatId = 'dm_' + [uid, f.id].sort().join('_');
+    await setDoc(doc(db, 'chats', chatId), {
+      participants: [uid, f.id], sellerId: f.id, sellerName: f.name, buyerId: uid, buyerName: username,
+      listingTitle: 'Shared posts', listingPrice: '', listingEmoji: '📣', listingBg: '#FBF1D6',
+      lastMessage: '📣 ' + (p.text ? p.text.slice(0, 40) : 'Shared a post'), updatedAt: serverTimestamp(),
+    }, {merge: true});
+    await addDoc(collection(db, 'chats', chatId, 'messages'), {
+      senderId: uid, senderName: username,
+      text: '📣 Shared a ' + (p.kind === 'achievement' ? 'achievement' : p.kind === 'question' ? 'question' : 'post') + ': ' + (p.text || ''),
+      createdAt: serverTimestamp(),
+    });
+    setSharePost(null);
+    Alert.alert('Sent', `Shared to ${f.name}'s inbox.`);
+  }
+
   // Choose what kind of thing to share
   function openComposerChooser(target: string, groupId?: string, sport?: string) {
     Alert.alert('Share something', 'What would you like to share?', [
@@ -202,6 +274,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     return (
       <TouchableOpacity style={[styles.card, p.pinned && styles.cardPinned]} onPress={onOpen} activeOpacity={0.9}>
         {p.pinned && <View style={styles.pinBadge}><Text style={styles.pinBadgeText}>📌 Pinned</Text></View>}
+        {!!p.repostFrom && <Text style={styles.repostLabel}>🔁 {p.authorName} reposted{p.repostFrom !== p.authorName ? ` from ${p.repostFrom}` : ''}</Text>}
         {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>📢 Announcement</Text></View>}
         {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>⭐ Achievement</Text></View>}
         {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>❓ Question</Text></View>}
@@ -211,7 +284,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
           </TouchableOpacity>
           <View style={{flex: 1, marginLeft: 10}}>
             <Text style={styles.author}>{p.authorName}</Text>
-            <Text style={styles.meta}>just now</Text>
+            <Text style={styles.meta}>{timeAgo(p.createdAt)}</Text>
           </View>
           <SportTag id={p.sport} />
         </View>
@@ -220,7 +293,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
         <View style={styles.actions}>
           <Reaction p={p} />
           <TouchableOpacity style={styles.actPill} onPress={onOpen}><Text style={styles.actPillText}>💬 {(p.comments || []).length}</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.actPill} onPress={() => repost(p)}><Text style={styles.actPillText}>🔁</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.actPill} onPress={() => setSharePost(p)}><Text style={styles.actPillText}>↗ Share</Text></TouchableOpacity>
           {canPin && <TouchableOpacity style={styles.actPill} onPress={() => togglePin(p)}><Text style={styles.actPillText}>{p.pinned ? '📌 Unpin' : '📌 Pin'}</Text></TouchableOpacity>}
+          {p.authorId === uid && <TouchableOpacity style={styles.actPill} onPress={() => deletePost(p)}><Text style={styles.actPillText}>🗑</Text></TouchableOpacity>}
         </View>
       </TouchableOpacity>
     );
@@ -447,13 +523,16 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
               {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>❓ Question</Text></View>}
               <View style={styles.cardHead}>
                 <Avatar name={p.authorName} size={40} photo={p.authorId === uid ? profile.photo : null} />
-                <View style={{flex: 1, marginLeft: 10}}><Text style={styles.author}>{p.authorName}</Text><Text style={styles.meta}>{sportOf(p.sport)?.label}</Text></View>
+                <View style={{flex: 1, marginLeft: 10}}><Text style={styles.author}>{p.authorName}</Text><Text style={styles.meta}>{timeAgo(p.createdAt)} · {sportOf(p.sport)?.label}</Text></View>
               </View>
               {!!p.text && <Text style={[styles.body, {fontSize: 16}]}>{p.text}</Text>}
               {!!p.photo && <Image source={{uri: p.photo}} style={styles.postImg} />}
               <View style={styles.actions}>
                 <Reaction p={p} />
                 <View style={styles.actPill}><Text style={styles.actPillText}>💬 {(p.comments || []).length}</Text></View>
+                <TouchableOpacity style={styles.actPill} onPress={() => repost(p)}><Text style={styles.actPillText}>🔁</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.actPill} onPress={() => setSharePost(p)}><Text style={styles.actPillText}>↗ Share</Text></TouchableOpacity>
+                {p.authorId === uid && <TouchableOpacity style={styles.actPill} onPress={() => deletePost(p)}><Text style={styles.actPillText}>🗑</Text></TouchableOpacity>}
               </View>
               <View style={styles.commentRow}>
                 <TextInput style={styles.commentInput} placeholder="Add a comment…" placeholderTextColor={TEXT3} value={ct} onChangeText={setCt} />
@@ -463,7 +542,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
               {sorted.map((c, i) => (
                 <View key={i} style={styles.tcomment}>
                   <Avatar name={c.authorName} size={32} photo={c.authorId === uid ? profile.photo : null} />
-                  <View style={{flex: 1, marginLeft: 10}}><Text style={styles.author}>{c.authorName}</Text><Text style={styles.body}>{c.text}</Text></View>
+                  <View style={{flex: 1, marginLeft: 10}}>
+                    <Text style={styles.author}>{c.authorName}</Text>
+                    <Text style={styles.body}>{c.text}</Text>
+                    {c.authorId === uid && <TouchableOpacity onPress={() => deleteComment(p, c)}><Text style={{color: '#B23', fontSize: 12, fontWeight: '600'}}>Delete</Text></TouchableOpacity>}
+                  </View>
                 </View>
               ))}
             </View>
@@ -745,6 +828,39 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
           </View></View>
         </Modal>
       )}
+
+      {/* Share sheet */}
+      {sharePost && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setSharePost(null)}>
+          <View style={styles.overlay}><View style={styles.sheet}>
+            <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Share</Text><TouchableOpacity onPress={() => setSharePost(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+            <ScrollView>
+              <TouchableOpacity style={styles.shareOpt} onPress={() => { setSharePost(null); Alert.alert('Link copied', 'Post link copied (preview).'); }}>
+                <Text style={styles.shareOptText}>🔗  Copy link</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shareOpt} onPress={() => { const p = sharePost; setSharePost(null); repost(p); }}>
+                <Text style={styles.shareOptText}>🔁  Repost to feed</Text>
+              </TouchableOpacity>
+
+              <Text style={[styles.label, {marginTop: 14}]}>Share to a group</Text>
+              {myGroups.length ? myGroups.map(g => (
+                <TouchableOpacity key={g.id} style={styles.shareRow} onPress={() => shareToGroup(sharePost, g)}>
+                  <Avatar name={g.name} size={34} photo={g.photo} />
+                  <Text style={styles.shareRowText}>{g.name}</Text>
+                </TouchableOpacity>
+              )) : <Text style={styles.noResult}>Join a group to share into it.</Text>}
+
+              <Text style={[styles.label, {marginTop: 14}]}>Send to a follower</Text>
+              {myFollowers.length ? myFollowers.map(f => (
+                <TouchableOpacity key={f.id} style={styles.shareRow} onPress={() => shareToFollower(sharePost, f)}>
+                  <Avatar name={f.name} size={34} />
+                  <Text style={styles.shareRowText}>{f.name}</Text>
+                </TouchableOpacity>
+              )) : <Text style={styles.noResult}>No followers yet.</Text>}
+            </ScrollView>
+          </View></View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -765,7 +881,12 @@ const styles = StyleSheet.create({
   meta: {fontSize: 12, color: TEXT2},
   body: {fontSize: 14, color: TEXT, lineHeight: 21, marginBottom: 12},
   postImg: {width: '100%', height: 220, borderRadius: 8, marginBottom: 12, resizeMode: 'cover'},
-  actions: {flexDirection: 'row', alignItems: 'center', gap: 10},
+  actions: {flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap'},
+  repostLabel: {fontSize: 12, color: TEXT2, fontWeight: '600', marginBottom: 8},
+  shareOpt: {paddingVertical: 14, borderBottomWidth: 0.5, borderBottomColor: BORDER},
+  shareOptText: {fontSize: 15, fontWeight: '500', color: TEXT},
+  shareRow: {flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8},
+  shareRowText: {fontSize: 14, color: TEXT, fontWeight: '500'},
   votePill: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 4, paddingVertical: 2},
   voteArrow: {fontSize: 16, color: TEXT2, paddingHorizontal: 8, paddingVertical: 4},
   voteScore: {fontSize: 14, fontWeight: '700', color: TEXT, minWidth: 24, textAlign: 'center'},

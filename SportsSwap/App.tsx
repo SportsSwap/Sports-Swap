@@ -391,7 +391,7 @@ export default function App() {
                       <Text style={styles.convoItem} numberOfLines={1}>{chat.listingTitle}</Text>
                       <Text style={styles.convoLast} numberOfLines={1}>{chat.lastMessage || 'No messages yet'}</Text>
                     </View>
-                    <Text style={styles.convoPrice}>${chat.listingPrice}</Text>
+                    {chat.listingPrice ? <Text style={styles.convoPrice}>${chat.listingPrice}</Text> : null}
                   </TouchableOpacity>
                 );
               })}
@@ -719,7 +719,7 @@ export default function App() {
                         <Text style={styles.convoItem} numberOfLines={1}>{chat.listingTitle}</Text>
                         <Text style={styles.convoLast} numberOfLines={1}>{chat.lastMessage || 'No messages yet'}</Text>
                       </View>
-                      <Text style={styles.convoPrice}>${chat.listingPrice}</Text>
+                      {chat.listingPrice ? <Text style={styles.convoPrice}>${chat.listingPrice}</Text> : null}
                     </TouchableOpacity>
                   );
                 })}
