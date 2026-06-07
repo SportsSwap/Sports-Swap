@@ -7,6 +7,7 @@ import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'fire
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { lightColors } from './theme';
+import Logo from './Logo';
 
 export default function AuthScreen({colors}: any) {
   const c = colors || lightColors;
@@ -72,9 +73,8 @@ export default function AuthScreen({colors}: any) {
 
           {/* Logo */}
           <View style={styles.logoWrap}>
-            <Text style={styles.logoEmoji}>🏆</Text>
-            <Text style={styles.logoText}>SportsSwap</Text>
-            <Text style={styles.logoSub}>Buy & sell sports gear near you</Text>
+            <Logo colors={c} size={34} />
+            <Text style={[styles.logoSub, {marginTop: 12}]}>Buy & sell sports gear · Connect with your community</Text>
           </View>
 
           {/* Tab switcher */}

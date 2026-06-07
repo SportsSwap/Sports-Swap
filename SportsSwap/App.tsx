@@ -1,5 +1,6 @@
 import React, {useState, useEffect, useCallback, useMemo} from 'react';
 import {lightColors, darkColors} from './theme';
+import Logo from './Logo';
 import {
   SafeAreaView,
   ScrollView,
@@ -374,7 +375,7 @@ export default function App() {
         />
       ) : tab === 'inbox' ? (
         <SafeAreaView style={styles.safe}>
-          <View style={styles.header}><Text style={styles.logo}>💬 Inbox</Text></View>
+          <View style={[styles.header, {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}]}><Logo colors={colors} /><Text style={{fontSize: 15, fontWeight: '600', color: TEXT2}}>Inbox</Text></View>
           {inboxChats.length === 0 ? (
             <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
               <Text style={{fontSize: 34, marginBottom: 10}}>💬</Text>
@@ -408,7 +409,7 @@ export default function App() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.logo}>🏆 SportsSwap</Text>
+        <Logo colors={colors} />
         <View style={styles.searchWrap}>
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput

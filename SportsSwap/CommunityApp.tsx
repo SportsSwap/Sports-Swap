@@ -10,6 +10,7 @@ import {
   doc, updateDoc, deleteDoc, setDoc,
 } from 'firebase/firestore';
 import {lightColors} from './theme';
+import Logo from './Logo';
 
 const SPORTS = [
   {id: 'football', label: 'Football', bg: '#EAF3DE'},
@@ -755,7 +756,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Text style={styles.headerLogo}>🏆 SportsSwap</Text>
+          <Logo colors={c} />
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 14}}>
             <TouchableOpacity onPress={() => onInbox && onInbox()}><Text style={{fontSize: 22}}>💬</Text></TouchableOpacity>
             <TouchableOpacity onPress={() => onMenu && onMenu()}><Avatar name={username} size={32} photo={profile.photo} /></TouchableOpacity>
