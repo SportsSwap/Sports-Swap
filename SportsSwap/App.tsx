@@ -360,14 +360,44 @@ export default function App() {
 
   return (
     <View style={{flex: 1, backgroundColor: BG3}}>
-      {tab !== 'market' ? (
+      {(tab === 'community' || tab === 'profile') ? (
         <CommunityApp
           tab={tab}
           username={username}
           uid={user.uid}
-          onInbox={() => { setTab('market'); setInboxOpen(true); }}
-          onMenu={() => { setTab('market'); setMenuOpen(true); }}
+          onInbox={() => setTab('inbox')}
+          onMenu={() => setTab('profile')}
         />
+      ) : tab === 'inbox' ? (
+        <SafeAreaView style={styles.safe}>
+          <View style={styles.header}><Text style={styles.logo}>💬 Inbox</Text></View>
+          {inboxChats.length === 0 ? (
+            <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+              <Text style={{fontSize: 34, marginBottom: 10}}>💬</Text>
+              <Text style={{fontWeight: '500', color: TEXT, marginBottom: 4}}>No messages yet</Text>
+              <Text style={{fontSize: 13, color: TEXT2}}>Message a seller to start chatting</Text>
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 90}}>
+              {inboxChats.map(chat => {
+                const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
+                return (
+                  <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
+                    <View style={[styles.convoAvatar, {backgroundColor: chat.listingBg || BG2}]}>
+                      <Text style={{fontSize: 20}}>{chat.listingEmoji || '🏆'}</Text>
+                    </View>
+                    <View style={{flex: 1, minWidth: 0}}>
+                      <Text style={styles.convoName} numberOfLines={1}>{otherName}</Text>
+                      <Text style={styles.convoItem} numberOfLines={1}>{chat.listingTitle}</Text>
+                      <Text style={styles.convoLast} numberOfLines={1}>{chat.lastMessage || 'No messages yet'}</Text>
+                    </View>
+                    <Text style={styles.convoPrice}>${chat.listingPrice}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+        </SafeAreaView>
       ) : (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={BG} />
@@ -560,59 +590,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Chat Modal */}
-      <Modal visible={chatOpen} animationType="slide" transparent>
-        <View style={styles.overlay}>
-          <View style={styles.chatModal}>
-            <View style={styles.chatHeader}>
-              <TouchableOpacity onPress={() => {setChatOpen(false); setActiveChat(null);}}>
-                <Text style={styles.backBtn}>←</Text>
-              </TouchableOpacity>
-              <View style={{flex: 1}}>
-                <Text style={styles.chatItemName} numberOfLines={1}>{activeChat?.title}</Text>
-                <Text style={styles.chatSeller}>{activeChat?.otherName}</Text>
-              </View>
-              <Text style={styles.chatPrice}>${activeChat?.price}</Text>
-            </View>
-            <ScrollView style={styles.chatMessages} contentContainerStyle={{padding: 14}}>
-              {chatMessages.length === 0 && (
-                <Text style={{textAlign: 'center', color: TEXT3, fontSize: 13, marginTop: 20}}>
-                  Say hello 👋 — start the conversation!
-                </Text>
-              )}
-              {chatMessages.map(m => {
-                const mine = m.senderId === user.uid;
-                return (
-                  <View key={m.id} style={[styles.msgRow, mine && styles.msgRowMine]}>
-                    <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
-                      <Text style={mine ? styles.bubbleMineText : styles.bubbleTheirsText}>{m.text}</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </ScrollView>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickMsgs}>
-              {QUICK_MSGS.map(q => (
-                <TouchableOpacity key={q} style={styles.qm} onPress={() => sendMessage(q)}>
-                  <Text style={styles.qmText}>{q}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <View style={styles.chatInputRow}>
-              <TextInput
-                style={styles.chatInput}
-                placeholder="Type a message…"
-                placeholderTextColor={TEXT3}
-                value={inputText}
-                onChangeText={setInputText}
-              />
-              <TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage(inputText)}>
-                <Text style={styles.sendBtnText}>➤</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* Chat modal lives at root level now (renders on every tab) */}
 
       {/* Dropdown Menu */}
       <Modal visible={menuOpen} animationType="fade" transparent>
@@ -631,7 +609,7 @@ export default function App() {
               <Text style={styles.menuItemIcon}>👤</Text>
               <Text style={styles.menuItemText}>Profile</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setInboxOpen(true);}}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('inbox');}}>
               <Text style={styles.menuItemIcon}>💬</Text>
               <Text style={styles.menuItemText}>Inbox</Text>
               {inboxChats.length > 0 && (
@@ -807,6 +785,60 @@ export default function App() {
     </SafeAreaView>
       )}
 
+      {/* Chat modal — root level so it opens from any tab */}
+      <Modal visible={chatOpen} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={styles.chatModal}>
+            <View style={styles.chatHeader}>
+              <TouchableOpacity onPress={() => {setChatOpen(false); setActiveChat(null);}}>
+                <Text style={styles.backBtn}>←</Text>
+              </TouchableOpacity>
+              <View style={{flex: 1}}>
+                <Text style={styles.chatItemName} numberOfLines={1}>{activeChat?.title}</Text>
+                <Text style={styles.chatSeller}>{activeChat?.otherName}</Text>
+              </View>
+              <Text style={styles.chatPrice}>${activeChat?.price}</Text>
+            </View>
+            <ScrollView style={styles.chatMessages} contentContainerStyle={{padding: 14}}>
+              {chatMessages.length === 0 && (
+                <Text style={{textAlign: 'center', color: TEXT3, fontSize: 13, marginTop: 20}}>
+                  Say hello 👋 — start the conversation!
+                </Text>
+              )}
+              {chatMessages.map(m => {
+                const mine = m.senderId === user.uid;
+                return (
+                  <View key={m.id} style={[styles.msgRow, mine && styles.msgRowMine]}>
+                    <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                      <Text style={mine ? styles.bubbleMineText : styles.bubbleTheirsText}>{m.text}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickMsgs}>
+              {QUICK_MSGS.map(q => (
+                <TouchableOpacity key={q} style={styles.qm} onPress={() => sendMessage(q)}>
+                  <Text style={styles.qmText}>{q}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={styles.chatInputRow}>
+              <TextInput
+                style={styles.chatInput}
+                placeholder="Type a message…"
+                placeholderTextColor={TEXT3}
+                value={inputText}
+                onChangeText={setInputText}
+              />
+              <TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage(inputText)}>
+                <Text style={styles.sendBtnText}>➤</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Bottom navigation */}
       <View style={styles.bottomNav}>
         <TouchableOpacity style={styles.bnavBtn} onPress={() => setTab('community')}>
@@ -814,6 +846,10 @@ export default function App() {
         </TouchableOpacity>
         <TouchableOpacity style={styles.bnavBtn} onPress={() => setTab('market')}>
           <Text style={[styles.bnavText, tab === 'market' && styles.bnavActive]}>SportsSwap</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bnavBtn} onPress={() => setTab('inbox')}>
+          <Text style={[styles.bnavText, tab === 'inbox' && styles.bnavActive]}>Inbox</Text>
+          {inboxChats.length > 0 && <View style={styles.navDot} />}
         </TouchableOpacity>
         <TouchableOpacity style={styles.bnavBtn} onPress={() => setTab('profile')}>
           <Text style={[styles.bnavText, tab === 'profile' && styles.bnavActive]}>Profile</Text>
@@ -829,6 +865,7 @@ const styles = StyleSheet.create({
   bnavBtn: {flex: 1, alignItems: 'center'},
   bnavText: {fontSize: 13, color: TEXT2, fontWeight: '500'},
   bnavActive: {color: GOLD, fontWeight: '700'},
+  navDot: {position: 'absolute', top: -3, right: -10, width: 8, height: 8, borderRadius: 4, backgroundColor: GOLD},
   header: {flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: BG, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: BORDER},
   logo: {fontSize: 18, fontWeight: '700', color: GOLD},
   searchWrap: {flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, gap: 6, borderWidth: 0.5, borderColor: BORDER},
