@@ -87,6 +87,7 @@ function SportTag({id}: any) {
 export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab: string; username: string; uid: string; onInbox?: () => void; onMenu?: () => void}) {
   const [posts, setPosts] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [profile, setProfile] = useState<any>({sport: 'football', bio: '', photo: null});
@@ -115,7 +116,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     const u3 = onSnapshot(collection(db, 'follows'), snap => {
       setFollows(snap.docs.map(d => ({id: d.id, ...d.data()})));
     });
-    return () => { u1(); u2(); u3(); };
+    const u4 = onSnapshot(collection(db, 'users'), snap => {
+      setUsers(snap.docs.map(d => ({id: d.id, ...d.data()})));
+    });
+    return () => { u1(); u2(); u3(); u4(); };
   }, []);
 
   const thread = posts.find(p => p.id === threadId);
@@ -189,9 +193,36 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   // ---------- COMMUNITY FEED ----------
   function CommunityFeed() {
     const q = search.trim().toLowerCase();
-    const feed = posts.filter(p => !p.groupId
-      && (sportFilter === 'all' || p.sport === sportFilter)
-      && (!q || (p.text || '').toLowerCase().includes(q) || (p.authorName || '').toLowerCase().includes(q)));
+
+    // While searching, show matching People & Groups (not posts) — live typeahead
+    if (q) {
+      const people = users.filter(u => (u.username || '').toLowerCase().includes(q));
+      const grps = groups.filter(g => (g.name || '').toLowerCase().includes(q));
+      return (
+        <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 90}} keyboardShouldPersistTaps="handled">
+          <Text style={styles.sectionLabel}>People</Text>
+          {people.length ? people.map(u => (
+            <TouchableOpacity key={u.id} style={styles.resultRow} onPress={() => setViewUser({id: u.id, name: u.username, sport: u.mainSport || ''})}>
+              <Avatar name={u.username} size={42} photo={u.id === uid ? profile.photo : null} />
+              <Text style={styles.resultName}>{u.username}{u.id === uid ? '  (You)' : ''}</Text>
+            </TouchableOpacity>
+          )) : <Text style={styles.noResult}>No people found</Text>}
+
+          <Text style={[styles.sectionLabel, {marginTop: 18}]}>Groups</Text>
+          {grps.length ? grps.map(g => (
+            <TouchableOpacity key={g.id} style={styles.resultRow} onPress={() => openGroup(g)}>
+              <Avatar name={g.name} size={42} photo={g.photo} />
+              <View style={{flex: 1, marginLeft: 0}}>
+                <Text style={styles.resultName}>{g.name}</Text>
+                <Text style={styles.meta}>{memberCount(g)} members{g.priv ? ' · Private' : ''}</Text>
+              </View>
+            </TouchableOpacity>
+          )) : <Text style={styles.noResult}>No groups found</Text>}
+        </ScrollView>
+      );
+    }
+
+    const feed = posts.filter(p => !p.groupId && (sportFilter === 'all' || p.sport === sportFilter));
     return (
       <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 90}}>
         <TouchableOpacity style={styles.composerBar} onPress={() => setComposer({target: 'community'})}>
@@ -559,7 +590,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
         {tab === 'community' && (
           <View style={styles.searchWrap}>
             <Text style={{fontSize: 14}}>🔍</Text>
-            <TextInput style={styles.searchInput} placeholder="Search people or posts…" placeholderTextColor={TEXT3} value={search} onChangeText={setSearch} />
+            <TextInput style={styles.searchInput} placeholder="Search people or groups…" placeholderTextColor={TEXT3} value={search} onChangeText={setSearch} returnKeyType="search" />
+            {search.length > 0 && <TouchableOpacity onPress={() => setSearch('')}><Text style={{fontSize: 16, color: TEXT3}}>✕</Text></TouchableOpacity>}
           </View>
         )}
       </View>
@@ -701,4 +733,7 @@ const styles = StyleSheet.create({
   filterBtnText: {fontSize: 13, fontWeight: '600', color: TEXT},
   filterOption: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderTopWidth: 0.5, borderTopColor: BORDER},
   filterOptionText: {fontSize: 15, color: TEXT},
+  resultRow: {flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, padding: 10, marginBottom: 8},
+  resultName: {fontSize: 15, fontWeight: '600', color: TEXT},
+  noResult: {fontSize: 13, color: TEXT2, paddingVertical: 6},
 });
