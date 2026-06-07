@@ -159,12 +159,42 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     return true;
   }
 
+  // Choose what kind of thing to share
+  function openComposerChooser(target: string, groupId?: string, sport?: string) {
+    Alert.alert('Share something', 'What would you like to share?', [
+      {text: '📣 Create a post', onPress: () => setComposer({target, groupId, sport, kind: 'post'})},
+      {text: '❓ Ask a question', onPress: () => setComposer({target, groupId, sport, kind: 'question'})},
+      {text: '🏅 Share an achievement', onPress: () => setComposer({target, groupId, sport, kind: 'achievement'})},
+      {text: 'Cancel', style: 'cancel'},
+    ]);
+  }
+
+  // Reaction control: medals for achievements, up/down votes for everything else
+  function Reaction({p}: any) {
+    const mv = myVotes[p.id] || 0;
+    if (p.kind === 'achievement') {
+      return (
+        <TouchableOpacity style={[styles.medalBtn, mv === 1 && styles.medalBtnActive]} onPress={() => votePost(p, 1)}>
+          <Text style={styles.medalText}>🏅 {p.votes || 0}</Text>
+        </TouchableOpacity>
+      );
+    }
+    return (
+      <View style={styles.votePill}>
+        <TouchableOpacity onPress={() => votePost(p, 1)}><Text style={[styles.voteArrow, mv === 1 && {color: '#E8590C'}]}>▲</Text></TouchableOpacity>
+        <Text style={styles.voteScore}>{p.votes || 0}</Text>
+        <TouchableOpacity onPress={() => votePost(p, -1)}><Text style={[styles.voteArrow, mv === -1 && {color: '#4263EB'}]}>▼</Text></TouchableOpacity>
+      </View>
+    );
+  }
+
   // ---------- POST CARD ----------
   function PostCard({p, onOpen}: any) {
-    const mv = myVotes[p.id] || 0;
     return (
       <TouchableOpacity style={styles.card} onPress={onOpen} activeOpacity={0.9}>
         {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>📢 Announcement</Text></View>}
+        {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>⭐ Achievement</Text></View>}
+        {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>❓ Question</Text></View>}
         <View style={styles.cardHead}>
           <TouchableOpacity onPress={() => setViewUser({id: p.authorId, name: p.authorName, sport: p.sport})}>
             <Avatar name={p.authorName} size={40} photo={p.authorId === uid ? profile.photo : null} />
@@ -178,11 +208,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
         {!!p.text && <Text style={styles.body}>{p.text}</Text>}
         {!!p.photo && <Image source={{uri: p.photo}} style={styles.postImg} />}
         <View style={styles.actions}>
-          <View style={styles.votePill}>
-            <TouchableOpacity onPress={() => votePost(p, 1)}><Text style={[styles.voteArrow, mv === 1 && {color: '#E8590C'}]}>▲</Text></TouchableOpacity>
-            <Text style={styles.voteScore}>{p.votes || 0}</Text>
-            <TouchableOpacity onPress={() => votePost(p, -1)}><Text style={[styles.voteArrow, mv === -1 && {color: '#4263EB'}]}>▼</Text></TouchableOpacity>
-          </View>
+          <Reaction p={p} />
           <TouchableOpacity style={styles.actPill} onPress={onOpen}><Text style={styles.actPillText}>💬 {(p.comments || []).length}</Text></TouchableOpacity>
           <TouchableOpacity style={styles.actPill} onPress={() => Alert.alert('Shared', 'Link copied (preview)')}><Text style={styles.actPillText}>↗ Share</Text></TouchableOpacity>
         </View>
@@ -225,9 +251,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     const feed = posts.filter(p => !p.groupId && (sportFilter === 'all' || p.sport === sportFilter));
     return (
       <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 90}}>
-        <TouchableOpacity style={styles.composerBar} onPress={() => setComposer({target: 'community'})}>
+        <TouchableOpacity style={styles.composerBar} onPress={() => openComposerChooser('community')}>
           <Avatar name={username} size={34} photo={profile.photo} />
-          <Text style={styles.composerPh}>Share news, tips or a question…</Text>
+          <Text style={styles.composerPh}>Share news, achievements or ask a question…</Text>
         </TouchableOpacity>
 
         {/* Sport filter dropdown */}
@@ -357,7 +383,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
               )}
             </View>
 
-            <TouchableOpacity style={[styles.composerBar, {marginTop: 14}]} onPress={() => setComposer({target: 'group', groupId: g.id, sport: g.sport})}>
+            <TouchableOpacity style={[styles.composerBar, {marginTop: 14}]} onPress={() => openComposerChooser('group', g.id, g.sport)}>
               <Avatar name={username} size={34} photo={profile.photo} />
               <Text style={styles.composerPh}>Start a conversation in {g.name}…</Text>
             </TouchableOpacity>
@@ -377,13 +403,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     const p = thread; if (!p) return null;
     const [ct, setCt] = useState('');
     const sorted = [...(p.comments || [])].sort((a, b) => (b.votes || 0) - (a.votes || 0));
-    const mv = myVotes[p.id] || 0;
     return (
       <Modal visible animationType="slide" onRequestClose={() => setThreadId(null)}>
         <View style={{flex: 1, backgroundColor: BG3}}>
           <View style={styles.topbar}><TouchableOpacity style={styles.backBtn} onPress={() => setThreadId(null)}><Text style={styles.backText}>← Back</Text></TouchableOpacity></View>
           <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 60}}>
             <View style={styles.pageCard}>
+              {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>⭐ Achievement</Text></View>}
+              {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>❓ Question</Text></View>}
               <View style={styles.cardHead}>
                 <Avatar name={p.authorName} size={40} photo={p.authorId === uid ? profile.photo : null} />
                 <View style={{flex: 1, marginLeft: 10}}><Text style={styles.author}>{p.authorName}</Text><Text style={styles.meta}>{sportOf(p.sport)?.label}</Text></View>
@@ -391,11 +418,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
               {!!p.text && <Text style={[styles.body, {fontSize: 16}]}>{p.text}</Text>}
               {!!p.photo && <Image source={{uri: p.photo}} style={styles.postImg} />}
               <View style={styles.actions}>
-                <View style={styles.votePill}>
-                  <TouchableOpacity onPress={() => votePost(p, 1)}><Text style={[styles.voteArrow, mv === 1 && {color: '#E8590C'}]}>▲</Text></TouchableOpacity>
-                  <Text style={styles.voteScore}>{p.votes || 0}</Text>
-                  <TouchableOpacity onPress={() => votePost(p, -1)}><Text style={[styles.voteArrow, mv === -1 && {color: '#4263EB'}]}>▼</Text></TouchableOpacity>
-                </View>
+                <Reaction p={p} />
                 <View style={styles.actPill}><Text style={styles.actPillText}>💬 {(p.comments || []).length}</Text></View>
               </View>
               <View style={styles.commentRow}>
@@ -422,6 +445,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     const [sport, setSport] = useState(composer?.sport || 'football');
     const [photo, setPhoto] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const kind = composer.kind || 'post';
+    const kindTitle = kind === 'question' ? 'Ask a question' : kind === 'achievement' ? 'Share an achievement' : (composer.target === 'group' ? 'Post to group' : 'Create a post');
+    const kindPh = kind === 'question' ? "What's your question?" : kind === 'achievement' ? 'Share your achievement! 🏅' : 'Share news, a tip, a result…';
     function pick() {
       launchImageLibrary({mediaType: 'photo', maxWidth: 1000, maxHeight: 1000, quality: 0.7, includeBase64: true}, (res: any) => {
         const a = res.assets?.[0]; if (a?.base64) setPhoto(`data:${a.type || 'image/jpeg'};base64,${a.base64}`);
@@ -433,14 +459,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
       setBusy(true);
       await addDoc(collection(db, 'cposts'), {
         authorId: uid, authorName: username, sport, groupId: composer.target === 'group' ? composer.groupId : null,
-        announcement: false, text: text.trim(), photo, votes: 0, comments: [], createdAt: serverTimestamp(),
+        announcement: false, kind, text: text.trim(), photo, votes: 0, comments: [], createdAt: serverTimestamp(),
       });
       setBusy(false); setComposer(null);
     }
     return (
       <Modal visible animationType="slide" transparent onRequestClose={() => setComposer(null)}>
         <View style={styles.overlay}><View style={styles.sheet}>
-          <View style={styles.sheetHead}><Text style={styles.sheetTitle}>{composer.target === 'group' ? 'Post to group' : 'Create a post'}</Text><TouchableOpacity onPress={() => setComposer(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+          <View style={styles.sheetHead}><Text style={styles.sheetTitle}>{kindTitle}</Text><TouchableOpacity onPress={() => setComposer(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
           <ScrollView>
             <Text style={styles.label}>Sport</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 8}}>
@@ -448,8 +474,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
             </ScrollView>
             <Text style={styles.label}>Photo (optional)</Text>
             <TouchableOpacity style={styles.photoDrop} onPress={pick}>{photo ? <Image source={{uri: photo}} style={{width: '100%', height: '100%', borderRadius: 8}} /> : <Text style={{color: TEXT2}}>📷  Add a photo</Text>}</TouchableOpacity>
-            <Text style={styles.label}>Description</Text>
-            <TextInput style={styles.textArea} multiline placeholder="Share news, a tip, a result…" placeholderTextColor={TEXT3} value={text} onChangeText={setText} />
+            <Text style={styles.label}>{kind === 'question' ? 'Your question' : kind === 'achievement' ? 'Your achievement' : 'Description'}</Text>
+            <TextInput style={styles.textArea} multiline placeholder={kindPh} placeholderTextColor={TEXT3} value={text} onChangeText={setText} />
             <TouchableOpacity style={styles.primaryBtn} onPress={post} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Post</Text>}</TouchableOpacity>
           </ScrollView>
         </View></View>
@@ -525,7 +551,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
           <Text style={[styles.body, {marginTop: 8}]}>{profile.bio || 'Add a bio to tell people about yourself and your sport.'}</Text>
           <View style={{flexDirection: 'row', gap: 10, marginTop: 14}}>
             <TouchableOpacity style={[styles.smallBtn, styles.smallBtnAlt, {flex: 1}]} onPress={() => setEditOpen(true)}><Text style={styles.smallBtnText}>Edit profile</Text></TouchableOpacity>
-            <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold, {flex: 1}]} onPress={() => setComposer({target: 'community', sport: profile.sport})}><Text style={[styles.smallBtnText, {color: '#fff'}]}>+ New post</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold, {flex: 1}]} onPress={() => openComposerChooser('community', undefined, profile.sport)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>+ New post</Text></TouchableOpacity>
           </View>
           {joined.length > 0 && (
             <View style={{marginTop: 14, borderTopWidth: 0.5, borderTopColor: BORDER, paddingTop: 12}}>
@@ -723,6 +749,13 @@ const styles = StyleSheet.create({
   primaryBtnText: {color: '#fff', fontSize: 15, fontWeight: '600'},
   annBadge: {backgroundColor: GOLD_LIGHT, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
   annBadgeText: {fontSize: 11, fontWeight: '700', color: GOLD_DARK},
+  starBadge: {backgroundColor: '#FFF3D6', borderWidth: 0.5, borderColor: '#E3B948', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
+  starBadgeText: {fontSize: 11, fontWeight: '700', color: GOLD_DARK},
+  qBadge: {backgroundColor: '#E6F1FB', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
+  qBadgeText: {fontSize: 11, fontWeight: '700', color: '#0C447C'},
+  medalBtn: {backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 0.5, borderColor: BG2},
+  medalBtnActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
+  medalText: {fontSize: 14, fontWeight: '700', color: TEXT},
   statNum: {fontSize: 20, fontWeight: '700', color: TEXT},
   chip: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5},
   profileTabs: {flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: BORDER, marginTop: 16, marginBottom: 8},
