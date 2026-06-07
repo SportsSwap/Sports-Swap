@@ -1,7 +1,7 @@
 import React, {useState, useEffect} from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Modal,
-  StyleSheet, Image, Alert, ActivityIndicator,
+  StyleSheet, Image, Alert, ActivityIndicator, SafeAreaView,
 } from 'react-native';
 import {launchImageLibrary} from 'react-native-image-picker';
 import {db} from './firebase';
@@ -73,10 +73,11 @@ function SportTag({id}: any) {
   );
 }
 
-export default function CommunityApp({tab, username, uid}: {tab: string; username: string; uid: string}) {
+export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab: string; username: string; uid: string; onInbox?: () => void; onMenu?: () => void}) {
   const [posts, setPosts] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [profile, setProfile] = useState<any>({sport: 'football', bio: '', photo: null});
   const [profileTab, setProfileTab] = useState('posts');
   const [myVotes, setMyVotes] = useState<any>({});
@@ -150,7 +151,8 @@ export default function CommunityApp({tab, username, uid}: {tab: string; usernam
 
   // ---------- COMMUNITY FEED ----------
   function CommunityFeed() {
-    const feed = posts.filter(p => !p.groupId);
+    const q = search.trim().toLowerCase();
+    const feed = posts.filter(p => !p.groupId && (!q || (p.text || '').toLowerCase().includes(q) || (p.authorName || '').toLowerCase().includes(q)));
     return (
       <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 90}}>
         <TouchableOpacity style={styles.composerBar} onPress={() => setComposer({target: 'community'})}>
@@ -494,23 +496,44 @@ export default function CommunityApp({tab, username, uid}: {tab: string; usernam
     );
   }
 
-  if (loading) {
-    return <View style={{flex: 1, backgroundColor: BG3, alignItems: 'center', justifyContent: 'center'}}><ActivityIndicator size="large" color={GOLD} /><Text style={{color: TEXT2, marginTop: 10}}>Loading community…</Text></View>;
-  }
-
   return (
-    <View style={{flex: 1, backgroundColor: BG3}}>
-      {tab === 'community' ? <CommunityFeed /> : <ProfileScreen />}
+    <SafeAreaView style={{flex: 1, backgroundColor: BG3}}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <Text style={styles.headerLogo}>🏆 SportsSwap</Text>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 14}}>
+            <TouchableOpacity onPress={() => onInbox && onInbox()}><Text style={{fontSize: 22}}>💬</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onMenu && onMenu()}><Avatar name={username} size={32} photo={profile.photo} /></TouchableOpacity>
+          </View>
+        </View>
+        {tab === 'community' && (
+          <View style={styles.searchWrap}>
+            <Text style={{fontSize: 14}}>🔍</Text>
+            <TextInput style={styles.searchInput} placeholder="Search people or posts…" placeholderTextColor={TEXT3} value={search} onChangeText={setSearch} />
+          </View>
+        )}
+      </View>
+
+      {loading
+        ? <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}><ActivityIndicator size="large" color={GOLD} /><Text style={{color: TEXT2, marginTop: 10}}>Loading community…</Text></View>
+        : (tab === 'community' ? <CommunityFeed /> : <ProfileScreen />)}
+
       {thread && <ThreadView />}
       {group && <GroupPage />}
       {composer && <Composer />}
       {createOpen && <CreateGroup />}
       {editOpen && <EditProfile />}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  header: {backgroundColor: BG, borderBottomWidth: 0.5, borderBottomColor: BORDER, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10},
+  headerRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
+  headerLogo: {fontSize: 18, fontWeight: '700', color: GOLD},
+  searchWrap: {flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginTop: 10, borderWidth: 0.5, borderColor: BORDER},
+  searchInput: {flex: 1, fontSize: 14, color: TEXT, padding: 0},
   avatar: {alignItems: 'center', justifyContent: 'center', overflow: 'hidden'},
   sportTag: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4},
   sportDot: {width: 8, height: 8, borderRadius: 4, marginRight: 6},

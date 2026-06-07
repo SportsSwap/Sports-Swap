@@ -352,7 +352,13 @@ export default function App() {
   return (
     <View style={{flex: 1, backgroundColor: BG3}}>
       {tab !== 'market' ? (
-        <CommunityApp tab={tab} username={username} uid={user.uid} />
+        <CommunityApp
+          tab={tab}
+          username={username}
+          uid={user.uid}
+          onInbox={() => { setTab('market'); setInboxOpen(true); }}
+          onMenu={() => { setTab('market'); setMenuOpen(true); }}
+        />
       ) : (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={BG} />
