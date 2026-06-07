@@ -103,6 +103,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   const [sportFilter, setSportFilter] = useState('all');
   const [filterOpen, setFilterOpen] = useState(false);
   const [viewUser, setViewUser] = useState<any>(null);
+  const [eventGroup, setEventGroup] = useState<any>(null);
 
   // Live data from Firebase
   useEffect(() => {
@@ -158,6 +159,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     await updateDoc(doc(db, 'cposts', p.id), {comments: next});
     return true;
   }
+  // Event RSVP (opt in / opt out)
+  const isGoing = (ev: any) => (ev.attendees || []).some((a: any) => a.id === uid);
+  async function toggleRsvp(ev: any) {
+    const attendees = isGoing(ev) ? (ev.attendees || []).filter((a: any) => a.id !== uid) : [...(ev.attendees || []), {id: uid, name: username}];
+    await updateDoc(doc(db, 'cposts', ev.id), {attendees});
+  }
+  // Moderator: pin / unpin a message
+  const togglePin = (p: any) => updateDoc(doc(db, 'cposts', p.id), {pinned: !p.pinned});
 
   // Choose what kind of thing to share
   function openComposerChooser(target: string, groupId?: string, sport?: string) {
@@ -189,9 +198,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   }
 
   // ---------- POST CARD ----------
-  function PostCard({p, onOpen}: any) {
+  function PostCard({p, onOpen, canPin}: any) {
     return (
-      <TouchableOpacity style={styles.card} onPress={onOpen} activeOpacity={0.9}>
+      <TouchableOpacity style={[styles.card, p.pinned && styles.cardPinned]} onPress={onOpen} activeOpacity={0.9}>
+        {p.pinned && <View style={styles.pinBadge}><Text style={styles.pinBadgeText}>📌 Pinned</Text></View>}
         {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>📢 Announcement</Text></View>}
         {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>⭐ Achievement</Text></View>}
         {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>❓ Question</Text></View>}
@@ -210,7 +220,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
         <View style={styles.actions}>
           <Reaction p={p} />
           <TouchableOpacity style={styles.actPill} onPress={onOpen}><Text style={styles.actPillText}>💬 {(p.comments || []).length}</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.actPill} onPress={() => Alert.alert('Shared', 'Link copied (preview)')}><Text style={styles.actPillText}>↗ Share</Text></TouchableOpacity>
+          {canPin && <TouchableOpacity style={styles.actPill} onPress={() => togglePin(p)}><Text style={styles.actPillText}>{p.pinned ? '📌 Unpin' : '📌 Pin'}</Text></TouchableOpacity>}
         </View>
       </TouchableOpacity>
     );
@@ -343,7 +353,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     const g = group; if (!g) return null;
     const all = posts.filter(p => p.groupId === g.id);
     const anns = all.filter(p => p.announcement);
-    const convos = all.filter(p => !p.announcement);
+    const events = all.filter(p => p.kind === 'event');
+    const convos = all.filter(p => !p.announcement && p.kind !== 'event')
+      .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)); // pinned first
     const mod = isMod(g);
     return (
       <Modal visible animationType="slide" onRequestClose={() => setGroupId(null)}>
@@ -372,6 +384,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
                   <Text style={styles.modBoxTitle}>⚙️ Moderator tools</Text>
                   <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
                     <TouchableOpacity style={styles.modBtn} onPress={() => makeAnnouncement(g)}><Text style={styles.modBtnText}>📢 Announce</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.modBtn} onPress={() => setEventGroup(g)}><Text style={styles.modBtnText}>📅 Event</Text></TouchableOpacity>
                     <TouchableOpacity style={styles.modBtn} onPress={() => editTraining(g)}><Text style={styles.modBtnText}>🗓️ Training</Text></TouchableOpacity>
                   </View>
                   <Text style={[styles.infoTitle, {marginTop: 12, marginBottom: 6}]}>MEMBERS</Text>
@@ -392,8 +405,26 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
             </TouchableOpacity>
 
             {anns.map(p => (<View key={p.id} style={styles.announce}><Text style={styles.announceHead}>📢 Announcement · {p.authorName}</Text><Text style={styles.body}>{p.text}</Text></View>))}
+
+            {events.length > 0 && (
+              <>
+                <Text style={[styles.sectionLabel, {marginTop: 6}]}>📅 Events</Text>
+                {events.map(ev => (
+                  <View key={ev.id} style={styles.eventCard}>
+                    <Text style={styles.eventTitle}>{ev.eventTitle}</Text>
+                    {!!ev.eventDate && <Text style={styles.eventMeta}>🗓️  {ev.eventDate}</Text>}
+                    {!!ev.eventLocation && <Text style={styles.eventMeta}>📍  {ev.eventLocation}</Text>}
+                    <Text style={[styles.eventMeta, {marginTop: 4}]}>{(ev.attendees || []).length} going</Text>
+                    <TouchableOpacity style={[styles.smallBtn, isGoing(ev) ? styles.smallBtnGold : styles.smallBtnAlt, {marginTop: 10}]} onPress={() => toggleRsvp(ev)}>
+                      <Text style={[styles.smallBtnText, isGoing(ev) && {color: '#fff'}]}>{isGoing(ev) ? "✓ You're going (tap to opt out)" : '+ Count me in'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </>
+            )}
+
             <Text style={[styles.sectionLabel, {marginTop: 6}]}>Conversations</Text>
-            {convos.length ? convos.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} />)
+            {convos.length ? convos.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} canPin={mod} />)
               : <Text style={{color: TEXT2, textAlign: 'center', padding: 20}}>No conversations yet — be the first to post!</Text>}
           </ScrollView>
         </View>
@@ -532,6 +563,44 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     );
   }
 
+  // ---------- CREATE EVENT (moderator) ----------
+  function CreateEvent() {
+    const g = eventGroup; if (!g) return null;
+    const [title, setTitle] = useState('');
+    const [date, setDate] = useState('');
+    const [loc, setLoc] = useState('');
+    const [busy, setBusy] = useState(false);
+    async function create() {
+      if (!title.trim()) { Alert.alert('Name needed', 'Give your event a name.'); return; }
+      if (!clean(title)) return;
+      setBusy(true);
+      await addDoc(collection(db, 'cposts'), {
+        authorId: uid, authorName: username, sport: g.sport, groupId: g.id, kind: 'event',
+        eventTitle: title.trim(), eventDate: date.trim(), eventLocation: loc.trim(),
+        attendees: [{id: uid, name: username}], announcement: false, text: '', photo: null, votes: 0, comments: [], createdAt: serverTimestamp(),
+      });
+      setBusy(false); setEventGroup(null);
+      Alert.alert('Event posted', `All ${memberCount(g)} members of ${g.name} have been notified.`);
+    }
+    return (
+      <Modal visible transparent animationType="slide" onRequestClose={() => setEventGroup(null)}>
+        <View style={styles.overlay}><View style={styles.sheet}>
+          <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Create an event</Text><TouchableOpacity onPress={() => setEventGroup(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+          <ScrollView>
+            <Text style={styles.label}>Event name</Text>
+            <TextInput style={styles.input} placeholder="e.g. Saturday training session" placeholderTextColor={TEXT3} value={title} onChangeText={setTitle} />
+            <Text style={styles.label}>Date & time</Text>
+            <TextInput style={styles.input} placeholder="e.g. Sat 14 June, 10:00am" placeholderTextColor={TEXT3} value={date} onChangeText={setDate} />
+            <Text style={styles.label}>Location</Text>
+            <TextInput style={styles.input} placeholder="e.g. Queens Park, field 3" placeholderTextColor={TEXT3} value={loc} onChangeText={setLoc} />
+            <Text style={{fontSize: 12, color: TEXT2, marginTop: 10}}>📢 All members will be notified, and can opt in or out.</Text>
+            <TouchableOpacity style={styles.primaryBtn} onPress={create} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Post event</Text>}</TouchableOpacity>
+          </ScrollView>
+        </View></View>
+      </Modal>
+    );
+  }
+
   // ---------- PROFILE ----------
   function ProfileScreen() {
     const myPosts = posts.filter(p => p.authorId === uid && !p.groupId && !p.announcement);
@@ -633,6 +702,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
       {group && <GroupPage />}
       {composer && <Composer />}
       {createOpen && <CreateGroup />}
+      {eventGroup && <CreateEvent />}
       {editOpen && <EditProfile />}
 
       {/* Sport filter dropdown */}
@@ -759,6 +829,12 @@ const styles = StyleSheet.create({
   medalBtn: {backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 0.5, borderColor: BG2},
   medalBtnActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
   medalText: {fontSize: 14, fontWeight: '700', color: TEXT},
+  cardPinned: {borderColor: GOLD, borderWidth: 1},
+  pinBadge: {backgroundColor: GOLD_LIGHT, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
+  pinBadgeText: {fontSize: 11, fontWeight: '700', color: GOLD_DARK},
+  eventCard: {backgroundColor: BG, borderWidth: 1, borderColor: GOLD, borderRadius: 12, padding: 14, marginBottom: 12},
+  eventTitle: {fontSize: 16, fontWeight: '700', color: TEXT, marginBottom: 6},
+  eventMeta: {fontSize: 13, color: TEXT2, marginTop: 2},
   statNum: {fontSize: 20, fontWeight: '700', color: TEXT},
   chip: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5},
   profileTabs: {flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: BORDER, marginTop: 16, marginBottom: 8},
