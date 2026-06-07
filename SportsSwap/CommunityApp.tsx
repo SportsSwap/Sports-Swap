@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import {lightColors} from './theme';
 import Logo from './Logo';
+import Btn from './Btn';
 
 const SPORTS = [
   {id: 'football', label: 'Football', bg: '#EAF3DE'},
@@ -249,9 +250,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const mv = myVotes[p.id] || 0;
     if (p.kind === 'achievement') {
       return (
-        <TouchableOpacity style={[styles.medalBtn, mv === 1 && styles.medalBtnActive]} onPress={() => votePost(p, 1)}>
-          <Text style={styles.medalText}>🏅 {p.votes || 0}</Text>
-        </TouchableOpacity>
+        <Btn style={[styles.medalBtn, mv === 1 && styles.medalBtnActive]} onPress={() => votePost(p, 1)} scaleTo={1.1}>
+          <Text style={[styles.medalText, mv === 1 && {color: GOLD_TEXT}]}>★ {p.votes || 0}</Text>
+        </Btn>
       );
     }
     return (
@@ -267,11 +268,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   function PostCard({p, onOpen, canPin}: any) {
     return (
       <TouchableOpacity style={[styles.card, p.pinned && styles.cardPinned]} onPress={onOpen} activeOpacity={0.9}>
-        {p.pinned && <View style={styles.pinBadge}><Text style={styles.pinBadgeText}>📌 Pinned</Text></View>}
-        {!!p.repostFrom && <Text style={styles.repostLabel}>🔁 {p.authorName} reposted{p.repostFrom !== p.authorName ? ` from ${p.repostFrom}` : ''}</Text>}
-        {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>📢 Announcement</Text></View>}
-        {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>⭐ Achievement</Text></View>}
-        {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>❓ Question</Text></View>}
+        {p.pinned && <View style={styles.pinBadge}><Text style={styles.pinBadgeText}>PINNED</Text></View>}
+        {!!p.repostFrom && <Text style={styles.repostLabel}>⟳ {p.authorName} reposted{p.repostFrom !== p.authorName ? ` from ${p.repostFrom}` : ''}</Text>}
+        {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>ANNOUNCEMENT</Text></View>}
+        {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>★ ACHIEVEMENT</Text></View>}
+        {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>QUESTION</Text></View>}
         <View style={styles.cardHead}>
           <TouchableOpacity onPress={() => setViewUser({id: p.authorId, name: p.authorName, sport: p.sport})}>
             <Avatar name={p.authorName} size={40} photo={p.authorId === uid ? profile.photo : null} />
@@ -286,11 +287,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         {!!p.photo && <Image source={{uri: p.photo}} style={styles.postImg} />}
         <View style={styles.actions}>
           <Reaction p={p} />
-          <TouchableOpacity style={styles.actPill} onPress={onOpen}><Text style={styles.actPillText}>💬 {(p.comments || []).length}</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.actPill} onPress={() => repost(p)}><Text style={styles.actPillText}>🔁</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.actPill} onPress={() => setSharePost(p)}><Text style={styles.actPillText}>↗ Share</Text></TouchableOpacity>
-          {canPin && <TouchableOpacity style={styles.actPill} onPress={() => togglePin(p)}><Text style={styles.actPillText}>{p.pinned ? '📌 Unpin' : '📌 Pin'}</Text></TouchableOpacity>}
-          {p.authorId === uid && <TouchableOpacity style={styles.actPill} onPress={() => deletePost(p)}><Text style={styles.actPillText}>🗑</Text></TouchableOpacity>}
+          <Btn style={styles.actPill} onPress={onOpen} scaleTo={1.1}><Text style={styles.actPillText}>{(p.comments || []).length} comments</Text></Btn>
+          <Btn style={styles.actPill} onPress={() => repost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Repost</Text></Btn>
+          <Btn style={styles.actPill} onPress={() => setSharePost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Share</Text></Btn>
+          {canPin && <Btn style={styles.actPill} onPress={() => togglePin(p)} scaleTo={1.1}><Text style={styles.actPillText}>{p.pinned ? 'Unpin' : 'Pin'}</Text></Btn>}
+          {p.authorId === uid && <Btn style={styles.actPill} onPress={() => deletePost(p)} scaleTo={1.1}><Text style={[styles.actPillText, {color: '#C0506E'}]}>Delete</Text></Btn>}
         </View>
       </TouchableOpacity>
     );
@@ -344,7 +345,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               <Text style={styles.groupCardName} numberOfLines={1}>{g.name}</Text>
               <Text style={styles.groupCardMembers}>{memberCount(g)} members{g.priv ? ' · Private' : ''}</Text>
               <View style={[styles.joinBtn, isJoined(g) && styles.joinedBtn]}>
-                <Text style={[styles.joinBtnText, isJoined(g) && {color: '#fff'}]}>{isJoined(g) ? 'Visit' : (g.priv ? 'Join 🔒' : '+ Join')}</Text>
+                <Text style={[styles.joinBtnText, isJoined(g) && {color: '#fff'}]}>{isJoined(g) ? 'Visit' : '+ Join'}</Text>
               </View>
             </TouchableOpacity>
           ))}
@@ -436,7 +437,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               <View style={{flexDirection: 'row', alignItems: 'center'}}>
                 <Avatar name={g.name} size={64} photo={g.photo} />
                 <View style={{flex: 1, marginLeft: 14}}>
-                  <Text style={styles.groupTitle}>{g.name}{g.priv ? '  🔒' : ''}</Text>
+                  <Text style={styles.groupTitle}>{g.name}{g.priv ? '  · Private' : ''}</Text>
                   <Text style={styles.meta}>{memberCount(g)} members · {sportOf(g.sport)?.label}</Text>
                   <Text style={styles.modLine}>Moderator: <Text style={{fontWeight: '700'}}>{g.creatorName}</Text>{mod ? ' (you)' : ''}</Text>
                 </View>
@@ -448,14 +449,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
                 <TouchableOpacity style={[styles.smallBtn, styles.smallBtnAlt]} onPress={() => Alert.alert('Share group', 'Group link copied! Share it with friends.')}><Text style={styles.smallBtnText}>↗ Share</Text></TouchableOpacity>
               </View>
               <Text style={[styles.body, {marginTop: 12}]}>{g.desc}</Text>
-              {!!g.training && (<View style={styles.infoCard}><Text style={{fontSize: 20}}>🗓️</Text><View style={{marginLeft: 10}}><Text style={styles.infoTitle}>TRAINING TIMES</Text><Text style={styles.infoText}>{g.training}</Text></View></View>)}
+              {!!g.training && (<View style={styles.infoCard}><View style={{width: 3, alignSelf: 'stretch', backgroundColor: GOLD, borderRadius: 2, marginRight: 10}} /><View><Text style={styles.infoTitle}>TRAINING TIMES</Text><Text style={styles.infoText}>{g.training}</Text></View></View>)}
               {mod && (
                 <View style={styles.modBox}>
-                  <Text style={styles.modBoxTitle}>⚙️ Moderator tools</Text>
+                  <Text style={styles.modBoxTitle}>MODERATOR TOOLS</Text>
                   <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
-                    <TouchableOpacity style={styles.modBtn} onPress={() => makeAnnouncement(g)}><Text style={styles.modBtnText}>📢 Announce</Text></TouchableOpacity>
-                    <TouchableOpacity style={styles.modBtn} onPress={() => setEventGroup(g)}><Text style={styles.modBtnText}>📅 Event</Text></TouchableOpacity>
-                    <TouchableOpacity style={styles.modBtn} onPress={() => editTraining(g)}><Text style={styles.modBtnText}>🗓️ Training</Text></TouchableOpacity>
+                    <Btn style={styles.modBtn} onPress={() => makeAnnouncement(g)} scaleTo={1.08}><Text style={styles.modBtnText}>Announce</Text></Btn>
+                    <Btn style={styles.modBtn} onPress={() => setEventGroup(g)} scaleTo={1.08}><Text style={styles.modBtnText}>+ Event</Text></Btn>
+                    <Btn style={styles.modBtn} onPress={() => editTraining(g)} scaleTo={1.08}><Text style={styles.modBtnText}>Training</Text></Btn>
                   </View>
                   <Text style={[styles.infoTitle, {marginTop: 12, marginBottom: 6}]}>MEMBERS</Text>
                   {(g.roster || []).map((m: any) => (
@@ -478,16 +479,16 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
             {events.length > 0 && (
               <>
-                <Text style={[styles.sectionLabel, {marginTop: 6}]}>📅 Events</Text>
+                <Text style={[styles.sectionLabel, {marginTop: 6}]}>Events</Text>
                 {events.map(ev => (
                   <View key={ev.id} style={styles.eventCard}>
                     <Text style={styles.eventTitle}>{ev.eventTitle}</Text>
-                    {!!ev.eventDate && <Text style={styles.eventMeta}>🗓️  {ev.eventDate}</Text>}
-                    {!!ev.eventLocation && <Text style={styles.eventMeta}>📍  {ev.eventLocation}</Text>}
+                    {!!ev.eventDate && <Text style={styles.eventMeta}>When · {ev.eventDate}</Text>}
+                    {!!ev.eventLocation && <Text style={styles.eventMeta}>Where · {ev.eventLocation}</Text>}
                     <Text style={[styles.eventMeta, {marginTop: 4}]}>{(ev.attendees || []).length} going</Text>
-                    <TouchableOpacity style={[styles.smallBtn, isGoing(ev) ? styles.smallBtnGold : styles.smallBtnAlt, {marginTop: 10}]} onPress={() => toggleRsvp(ev)}>
-                      <Text style={[styles.smallBtnText, isGoing(ev) && {color: '#fff'}]}>{isGoing(ev) ? "✓ You're going (tap to opt out)" : '+ Count me in'}</Text>
-                    </TouchableOpacity>
+                    <Btn style={[styles.smallBtn, isGoing(ev) ? styles.smallBtnGold : styles.smallBtnAlt, {marginTop: 10}]} onPress={() => toggleRsvp(ev)}>
+                      <Text style={[styles.smallBtnText, isGoing(ev) && {color: '#fff'}]}>{isGoing(ev) ? "Going — tap to opt out" : 'Count me in'}</Text>
+                    </Btn>
                   </View>
                 ))}
               </>
@@ -523,10 +524,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               {!!p.photo && <Image source={{uri: p.photo}} style={styles.postImg} />}
               <View style={styles.actions}>
                 <Reaction p={p} />
-                <View style={styles.actPill}><Text style={styles.actPillText}>💬 {(p.comments || []).length}</Text></View>
-                <TouchableOpacity style={styles.actPill} onPress={() => repost(p)}><Text style={styles.actPillText}>🔁</Text></TouchableOpacity>
-                <TouchableOpacity style={styles.actPill} onPress={() => setSharePost(p)}><Text style={styles.actPillText}>↗ Share</Text></TouchableOpacity>
-                {p.authorId === uid && <TouchableOpacity style={styles.actPill} onPress={() => deletePost(p)}><Text style={styles.actPillText}>🗑</Text></TouchableOpacity>}
+                <View style={styles.actPill}><Text style={styles.actPillText}>{(p.comments || []).length} comments</Text></View>
+                <Btn style={styles.actPill} onPress={() => repost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Repost</Text></Btn>
+                <Btn style={styles.actPill} onPress={() => setSharePost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Share</Text></Btn>
+                {p.authorId === uid && <Btn style={styles.actPill} onPress={() => deletePost(p)} scaleTo={1.1}><Text style={[styles.actPillText, {color: '#C0506E'}]}>Delete</Text></Btn>}
               </View>
               <View style={styles.commentRow}>
                 <TextInput style={styles.commentInput} placeholder="Add a comment…" placeholderTextColor={TEXT3} value={ct} onChangeText={setCt} />
@@ -587,7 +588,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             <TouchableOpacity style={styles.photoDrop} onPress={pick}>{photo ? <Image source={{uri: photo}} style={{width: '100%', height: '100%', borderRadius: 8}} /> : <Text style={{color: TEXT2}}>📷  Add a photo</Text>}</TouchableOpacity>
             <Text style={styles.label}>{kind === 'question' ? 'Your question' : kind === 'achievement' ? 'Your achievement' : 'Description'}</Text>
             <TextInput style={styles.textArea} multiline placeholder={kindPh} placeholderTextColor={TEXT3} value={text} onChangeText={setText} />
-            <TouchableOpacity style={styles.primaryBtn} onPress={post} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Post</Text>}</TouchableOpacity>
+            <Btn style={styles.primaryBtn} onPress={post} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Post</Text>}</Btn>
           </ScrollView>
         </View></View>
       </Modal>
@@ -633,7 +634,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             {priv && (<><Text style={styles.label}>Join code</Text><TextInput style={styles.input} placeholder="e.g. FOOTY2026" placeholderTextColor={TEXT3} autoCapitalize="characters" value={code} onChangeText={setCode} /></>)}
             <Text style={styles.label}>About</Text>
             <TextInput style={styles.textArea} multiline placeholder="Describe your group…" placeholderTextColor={TEXT3} value={desc} onChangeText={setDesc} />
-            <TouchableOpacity style={styles.primaryBtn} onPress={create} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Create group</Text>}</TouchableOpacity>
+            <Btn style={styles.primaryBtn} onPress={create} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Create group</Text>}</Btn>
           </ScrollView>
         </View></View>
       </Modal>
@@ -671,7 +672,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             <Text style={styles.label}>Location</Text>
             <TextInput style={styles.input} placeholder="e.g. Queens Park, field 3" placeholderTextColor={TEXT3} value={loc} onChangeText={setLoc} />
             <Text style={{fontSize: 12, color: TEXT2, marginTop: 10}}>📢 All members will be notified, and can opt in or out.</Text>
-            <TouchableOpacity style={styles.primaryBtn} onPress={create} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Post event</Text>}</TouchableOpacity>
+            <Btn style={styles.primaryBtn} onPress={create} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Post event</Text>}</Btn>
           </ScrollView>
         </View></View>
       </Modal>
@@ -744,7 +745,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             </ScrollView>
             <Text style={styles.label}>Bio</Text>
             <TextInput style={styles.textArea} multiline placeholder="Tell people about you…" placeholderTextColor={TEXT3} value={bio} onChangeText={setBio} />
-            <TouchableOpacity style={styles.primaryBtn} onPress={() => { setProfile({sport, bio: bio.trim(), photo}); setEditOpen(false); }}><Text style={styles.primaryBtnText}>Save</Text></TouchableOpacity>
+            <Btn style={styles.primaryBtn} onPress={() => { setProfile({sport, bio: bio.trim(), photo}); setEditOpen(false); }}><Text style={styles.primaryBtnText}>Save</Text></Btn>
           </ScrollView>
         </View></View>
       </Modal>
@@ -871,7 +872,7 @@ function makeStyles(c: any) {
   sportTag: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4},
   sportDot: {width: 8, height: 8, borderRadius: 4, marginRight: 6},
   sportTagText: {fontSize: 11, color: TEXT2, fontWeight: '600'},
-  card: {backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 12, padding: 14, marginBottom: 14},
+  card: {backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, padding: 16, marginBottom: 14, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: {width: 0, height: 4}, elevation: 2},
   cardHead: {flexDirection: 'row', alignItems: 'center', marginBottom: 10},
   author: {fontSize: 14, fontWeight: '600', color: TEXT},
   meta: {fontSize: 12, color: TEXT2},
@@ -888,12 +889,12 @@ function makeStyles(c: any) {
   voteScore: {fontSize: 14, fontWeight: '700', color: TEXT, minWidth: 24, textAlign: 'center'},
   actPill: {backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8},
   actPillText: {fontSize: 13, fontWeight: '600', color: TEXT2},
-  composerBar: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 12, padding: 12, marginBottom: 16},
+  composerBar: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 18, padding: 14, marginBottom: 16},
   composerPh: {flex: 1, marginLeft: 10, color: TEXT3, fontSize: 14},
   sectionLabel: {fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4, color: TEXT3, marginBottom: 10},
-  createGroupCard: {width: 120, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, padding: 12, marginRight: 10, alignItems: 'center', justifyContent: 'center'},
+  createGroupCard: {width: 120, backgroundColor: BG, borderWidth: 1, borderColor: GOLD, borderStyle: 'dashed', borderRadius: 18, padding: 12, marginRight: 10, alignItems: 'center', justifyContent: 'center'},
   createGroupText: {fontSize: 12, fontWeight: '600', color: GOLD, marginTop: 4},
-  groupCard: {width: 150, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, padding: 12, marginRight: 10},
+  groupCard: {width: 152, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 18, padding: 12, marginRight: 10},
   groupCardName: {fontSize: 13, fontWeight: '600', color: TEXT, marginTop: 8},
   groupCardMembers: {fontSize: 11, color: TEXT2, marginBottom: 8},
   joinBtn: {backgroundColor: GOLD_LIGHT, borderWidth: 0.5, borderColor: '#E3B948', borderRadius: 6, paddingVertical: 5, alignItems: 'center'},
@@ -902,10 +903,10 @@ function makeStyles(c: any) {
   topbar: {backgroundColor: BG, borderBottomWidth: 0.5, borderBottomColor: BORDER, paddingHorizontal: 14, paddingVertical: 10, paddingTop: 50},
   backBtn: {alignSelf: 'flex-start', backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8},
   backText: {fontSize: 14, fontWeight: '600', color: TEXT},
-  pageCard: {backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 12, padding: 18},
+  pageCard: {backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 22, padding: 18, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: {width: 0, height: 4}, elevation: 2},
   groupTitle: {fontSize: 19, fontWeight: '700', color: TEXT},
   modLine: {fontSize: 12, color: TEXT2, marginTop: 3},
-  smallBtn: {borderRadius: 8, paddingVertical: 9, paddingHorizontal: 16, alignItems: 'center'},
+  smallBtn: {borderRadius: 14, paddingVertical: 11, paddingHorizontal: 18, alignItems: 'center'},
   smallBtnGold: {backgroundColor: GOLD},
   smallBtnAlt: {backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER},
   smallBtnText: {fontSize: 14, fontWeight: '600', color: TEXT},
@@ -924,7 +925,7 @@ function makeStyles(c: any) {
   commentSend: {backgroundColor: GOLD, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9},
   tcomment: {flexDirection: 'row', paddingVertical: 12, borderTopWidth: 0.5, borderTopColor: BORDER},
   overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end'},
-  sheet: {backgroundColor: BG, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, maxHeight: '90%'},
+  sheet: {backgroundColor: BG, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, maxHeight: '90%'},
   sheetHead: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14},
   sheetTitle: {fontSize: 17, fontWeight: '600', color: TEXT},
   x: {fontSize: 22, color: TEXT2},
@@ -935,8 +936,8 @@ function makeStyles(c: any) {
   pill: {backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8},
   pillActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
   pillText: {fontSize: 12, color: TEXT2},
-  primaryBtn: {backgroundColor: GOLD, borderRadius: 10, paddingVertical: 13, alignItems: 'center', marginTop: 18},
-  primaryBtnText: {color: '#fff', fontSize: 15, fontWeight: '600'},
+  primaryBtn: {backgroundColor: GOLD, borderRadius: 16, paddingVertical: 15, alignItems: 'center', marginTop: 18, shadowColor: GOLD, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: {width: 0, height: 4}, elevation: 3},
+  primaryBtnText: {color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.3},
   annBadge: {backgroundColor: GOLD_LIGHT, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
   annBadgeText: {fontSize: 11, fontWeight: '700', color: GOLD_DARK},
   starBadge: {backgroundColor: '#FFF3D6', borderWidth: 0.5, borderColor: '#E3B948', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},

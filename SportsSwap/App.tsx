@@ -1,6 +1,7 @@
 import React, {useState, useEffect, useCallback, useMemo} from 'react';
 import {lightColors, darkColors} from './theme';
 import Logo from './Logo';
+import Btn from './Btn';
 import {
   SafeAreaView,
   ScrollView,
@@ -420,9 +421,9 @@ export default function App() {
             onChangeText={setSearch}
           />
         </View>
-        <TouchableOpacity style={styles.sellBtn} onPress={() => setPostOpen(true)}>
+        <Btn style={styles.sellBtn} onPress={() => setPostOpen(true)}>
           <Text style={styles.sellBtnText}>+ Sell</Text>
-        </TouchableOpacity>
+        </Btn>
         <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}>
           <Text style={styles.avatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>
         </TouchableOpacity>
@@ -587,7 +588,7 @@ export default function App() {
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity style={styles.cbtn} onPress={() => openChat(selectedListing)}>
-                  <Text style={styles.cbtnText}>💬 Message seller</Text>
+                  <Text style={styles.cbtnText}>Message seller</Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
@@ -883,8 +884,8 @@ function makeStyles(c: any) {
   searchWrap: {flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, gap: 6, borderWidth: 0.5, borderColor: BORDER},
   searchIcon: {fontSize: 14},
   searchInput: {flex: 1, fontSize: 14, color: TEXT},
-  sellBtn: {backgroundColor: GOLD, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8},
-  sellBtnText: {color: 'white', fontSize: 13, fontWeight: '700'},
+  sellBtn: {backgroundColor: GOLD, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 9, shadowColor: GOLD, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: {width: 0, height: 3}, elevation: 2},
+  sellBtnText: {color: 'white', fontSize: 13, fontWeight: '700', letterSpacing: 0.3},
   adBanner: {backgroundColor: BG, borderBottomWidth: 0.5, borderBottomColor: BORDER, height: 34},
   adItem: {flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, height: 34, borderRightWidth: 0.5, borderRightColor: BORDER},
   adLabel: {fontSize: 9, fontWeight: '700', color: GOLD, backgroundColor: GOLD_LIGHT, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1},
@@ -902,7 +903,7 @@ function makeStyles(c: any) {
   countBadgeText: {fontSize: 10, color: GOLD_TEXT},
   grid: {padding: 14},
   row: {gap: 14, marginBottom: 14},
-  card: {width: CARD_WIDTH, backgroundColor: BG, borderRadius: 12, borderWidth: 0.5, borderColor: BORDER, overflow: 'hidden'},
+  card: {width: CARD_WIDTH, backgroundColor: BG, borderRadius: 20, borderWidth: 0.5, borderColor: BORDER, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: {width: 0, height: 4}, elevation: 2},
   cardImg: {width: '100%', aspectRatio: 4 / 3, alignItems: 'center', justifyContent: 'center'},
   cardEmoji: {fontSize: 42},
   condBadge: {position: 'absolute', top: 8, left: 8, borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2},
@@ -914,12 +915,12 @@ function makeStyles(c: any) {
   cardFooter: {flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8},
   cardSeller: {fontSize: 11, color: TEXT2},
   cardLoc: {fontSize: 11, color: TEXT2},
-  msgBtn: {backgroundColor: GOLD_LIGHT, borderRadius: 8, paddingVertical: 7, alignItems: 'center', borderWidth: 0.5, borderColor: '#E3B948'},
+  msgBtn: {backgroundColor: GOLD_LIGHT, borderRadius: 12, paddingVertical: 8, alignItems: 'center', borderWidth: 0.5, borderColor: '#E3B948'},
   msgBtnText: {fontSize: 13, color: GOLD_TEXT, fontWeight: '500'},
   empty: {alignItems: 'center', paddingTop: 60},
   emptyText: {color: TEXT2, fontSize: 15},
   overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end'},
-  detModal: {backgroundColor: BG, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, maxHeight: '90%'},
+  detModal: {backgroundColor: BG, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, maxHeight: '90%'},
   detHeader: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14},
   detPrice: {fontSize: 28, fontWeight: '700', color: GOLD},
   closeX: {fontSize: 22, color: TEXT2},
@@ -934,8 +935,8 @@ function makeStyles(c: any) {
   sellerAvatarText: {fontSize: 12, fontWeight: '600', color: '#27500A'},
   sellerName: {fontSize: 14, fontWeight: '500', color: TEXT},
   sellerRating: {fontSize: 12, color: TEXT2},
-  cbtn: {backgroundColor: GOLD, borderRadius: 10, paddingVertical: 13, alignItems: 'center'},
-  cbtnText: {color: 'white', fontSize: 15, fontWeight: '600'},
+  cbtn: {backgroundColor: GOLD, borderRadius: 16, paddingVertical: 15, alignItems: 'center', shadowColor: GOLD, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: {width: 0, height: 4}, elevation: 3},
+  cbtnText: {color: 'white', fontSize: 15, fontWeight: '700', letterSpacing: 0.3},
   chatModal: {backgroundColor: BG, borderTopLeftRadius: 16, borderTopRightRadius: 16, height: '85%', flexDirection: 'column'},
   chatHeader: {flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, borderBottomWidth: 0.5, borderBottomColor: BORDER},
   backBtn: {fontSize: 22, color: TEXT2, marginRight: 4},
