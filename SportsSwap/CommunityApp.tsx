@@ -251,19 +251,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     const feed = posts.filter(p => !p.groupId && (sportFilter === 'all' || p.sport === sportFilter));
     return (
       <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 90}}>
-        <TouchableOpacity style={styles.composerBar} onPress={() => openComposerChooser('community')}>
-          <Avatar name={username} size={34} photo={profile.photo} />
-          <Text style={styles.composerPh}>Share news, achievements or ask a question…</Text>
-        </TouchableOpacity>
-
-        {/* Sport filter dropdown */}
-        <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14}}>
-          <Text style={[styles.sectionLabel, {marginBottom: 0}]}>Feed</Text>
-          <TouchableOpacity style={styles.filterBtn} onPress={() => setFilterOpen(true)}>
-            <Text style={styles.filterBtnText}>{sportFilter === 'all' ? 'All sports' : sportOf(sportFilter)?.label}  ▾</Text>
-          </TouchableOpacity>
-        </View>
-
+        {/* Discussion groups */}
         <Text style={styles.sectionLabel}>Discussion groups</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 16}}>
           <TouchableOpacity style={styles.createGroupCard} onPress={() => setCreateOpen(true)}>
@@ -283,6 +271,21 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
           {groups.length === 0 && <Text style={{color: TEXT2, alignSelf: 'center', paddingHorizontal: 12}}>No groups yet — create the first one!</Text>}
         </ScrollView>
 
+        {/* Feed + sport filter dropdown */}
+        <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14}}>
+          <Text style={[styles.sectionLabel, {marginBottom: 0}]}>Feed</Text>
+          <TouchableOpacity style={styles.filterBtn} onPress={() => setFilterOpen(true)}>
+            <Text style={styles.filterBtnText}>{sportFilter === 'all' ? 'All sports' : sportOf(sportFilter)?.label}  ▾</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Composer */}
+        <TouchableOpacity style={styles.composerBar} onPress={() => openComposerChooser('community')}>
+          <Avatar name={username} size={34} photo={profile.photo} />
+          <Text style={styles.composerPh}>Share news, achievements or ask a question…</Text>
+        </TouchableOpacity>
+
+        {/* Posts */}
         {feed.length ? feed.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} />)
           : <View style={{alignItems: 'center', paddingTop: 30}}><Text style={{fontWeight: '600', color: TEXT}}>No posts yet</Text><Text style={{color: TEXT2, marginTop: 4}}>Be the first to share something!</Text></View>}
       </ScrollView>
