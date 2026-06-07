@@ -87,7 +87,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   const [composer, setComposer] = useState<any>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [friends, setFriends] = useState<any[]>([]);
+  const [follows, setFollows] = useState<any[]>([]);
   const [sportFilter, setSportFilter] = useState('all');
   const [filterOpen, setFilterOpen] = useState(false);
   const [viewUser, setViewUser] = useState<any>(null);
@@ -101,8 +101,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
     const u2 = onSnapshot(collection(db, 'groups'), snap => {
       setGroups(snap.docs.map(d => ({id: d.id, ...d.data()})));
     });
-    const u3 = onSnapshot(collection(db, 'friends'), snap => {
-      setFriends(snap.docs.map(d => ({id: d.id, ...d.data()})));
+    const u3 = onSnapshot(collection(db, 'follows'), snap => {
+      setFollows(snap.docs.map(d => ({id: d.id, ...d.data()})));
     });
     return () => { u1(); u2(); u3(); };
   }, []);
@@ -113,22 +113,22 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   const isJoined = (g: any) => !!(g && (g.roster || []).some((m: any) => m.id === uid));
   const memberCount = (g: any) => (g.roster || []).length;
 
-  // ----- Friends (mutual, must be accepted on both ends) -----
-  const myFriends = friends.filter(f => f.status === 'accepted' && (f.fromId === uid || f.toId === uid));
-  const incomingReqs = friends.filter(f => f.status === 'pending' && f.toId === uid);
-  function relationWith(otherId: string) {
-    const f = friends.find(x => (x.fromId === uid && x.toId === otherId) || (x.fromId === otherId && x.toId === uid));
-    if (!f) return {state: 'none', id: ''};
-    if (f.status === 'accepted') return {state: 'friends', id: f.id};
-    if (f.fromId === uid) return {state: 'sent', id: f.id};
-    return {state: 'incoming', id: f.id};
+  // ----- Follow (one-way: followers / following) -----
+  const followingCount = follows.filter(f => f.followerId === uid).length;
+  const followerCount = follows.filter(f => f.followingId === uid).length;
+  const isFollowing = (otherId: string) => follows.some(f => f.followerId === uid && f.followingId === otherId);
+  const followDocId = (otherId: string) => {
+    const f = follows.find(x => x.followerId === uid && x.followingId === otherId);
+    return f ? f.id : null;
+  };
+  async function follow(other: any) {
+    if (other.id === uid || isFollowing(other.id)) return;
+    await addDoc(collection(db, 'follows'), {followerId: uid, followerName: username, followingId: other.id, followingName: other.name, createdAt: serverTimestamp()});
   }
-  async function addFriend(other: any) {
-    if (other.id === uid || relationWith(other.id).state !== 'none') return;
-    await addDoc(collection(db, 'friends'), {fromId: uid, fromName: username, toId: other.id, toName: other.name, status: 'pending', createdAt: serverTimestamp()});
+  async function unfollow(otherId: string) {
+    const id = followDocId(otherId);
+    if (id) await deleteDoc(doc(db, 'follows', id));
   }
-  const acceptFriend = (id: string) => updateDoc(doc(db, 'friends', id), {status: 'accepted'});
-  const removeFriendDoc = (id: string) => deleteDoc(doc(db, 'friends', id));
 
   async function votePost(p: any, dir: number) {
     const cur = myVotes[p.id] || 0;
@@ -474,8 +474,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
             <Avatar name={username} size={72} photo={profile.photo} />
             <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-around'}}>
               <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{myPosts.length}</Text><Text style={styles.meta}>Posts</Text></View>
-              <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{myFriends.length}</Text><Text style={styles.meta}>Friends</Text></View>
-              <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{joined.length}</Text><Text style={styles.meta}>Groups</Text></View>
+              <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{followerCount}</Text><Text style={styles.meta}>Followers</Text></View>
+              <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{followingCount}</Text><Text style={styles.meta}>Following</Text></View>
             </View>
           </View>
           <Text style={[styles.groupTitle, {marginTop: 12}]}>{username}</Text>
@@ -494,20 +494,6 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
             </View>
           )}
         </View>
-
-        {incomingReqs.length > 0 && (
-          <View style={[styles.pageCard, {marginTop: 14}]}>
-            <Text style={styles.infoTitle}>FRIEND REQUESTS</Text>
-            {incomingReqs.map(r => (
-              <View key={r.id} style={[styles.memberRow, {paddingVertical: 8}]}>
-                <Avatar name={r.fromName} size={36} />
-                <Text style={{flex: 1, marginLeft: 10, fontSize: 14, color: TEXT}}>{r.fromName}</Text>
-                <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold, {paddingVertical: 6, paddingHorizontal: 14}]} onPress={() => acceptFriend(r.id)}><Text style={[styles.smallBtnText, {color: '#fff', fontSize: 13}]}>Accept</Text></TouchableOpacity>
-                <TouchableOpacity style={{marginLeft: 10}} onPress={() => removeFriendDoc(r.id)}><Text style={{color: '#B23', fontSize: 13, fontWeight: '600'}}>Decline</Text></TouchableOpacity>
-              </View>
-            ))}
-          </View>
-        )}
 
         <View style={styles.profileTabs}>
           <TouchableOpacity style={[styles.pTab, profileTab === 'posts' && styles.pTabActive]} onPress={() => setProfileTab('posts')}><Text style={[styles.pTabText, profileTab === 'posts' && {color: GOLD}]}>Posts</Text></TouchableOpacity>
@@ -609,14 +595,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
             </View>
             {viewUser.id === uid ? (
               <Text style={{textAlign: 'center', color: TEXT2, padding: 12}}>This is you</Text>
-            ) : relationWith(viewUser.id).state === 'friends' ? (
-              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnAlt]} onPress={() => removeFriendDoc(relationWith(viewUser.id).id)}><Text style={styles.smallBtnText}>✓ Friends — tap to remove</Text></TouchableOpacity>
-            ) : relationWith(viewUser.id).state === 'sent' ? (
-              <View style={[styles.smallBtn, styles.smallBtnAlt]}><Text style={styles.smallBtnText}>Friend request sent</Text></View>
-            ) : relationWith(viewUser.id).state === 'incoming' ? (
-              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold]} onPress={() => acceptFriend(relationWith(viewUser.id).id)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>Accept friend request</Text></TouchableOpacity>
+            ) : isFollowing(viewUser.id) ? (
+              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnAlt]} onPress={() => unfollow(viewUser.id)}><Text style={styles.smallBtnText}>✓ Following — tap to unfollow</Text></TouchableOpacity>
             ) : (
-              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold]} onPress={() => addFriend(viewUser)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>+ Add friend</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold]} onPress={() => follow(viewUser)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>+ Follow</Text></TouchableOpacity>
             )}
           </View></View>
         </Modal>
