@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useMemo} from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Modal,
   StyleSheet, Image, Alert, ActivityIndicator, SafeAreaView,
@@ -9,18 +9,7 @@ import {
   collection, addDoc, onSnapshot, orderBy, query, serverTimestamp,
   doc, updateDoc, deleteDoc, setDoc,
 } from 'firebase/firestore';
-
-const GOLD = '#C8961E';
-const GOLD_DARK = '#9A6E12';
-const GOLD_LIGHT = '#FBF1D6';
-const GOLD_TEXT = '#8A6410';
-const BG = '#ffffff';
-const BG2 = '#f5f5f4';
-const BG3 = '#eeece8';
-const TEXT = '#1a1a18';
-const TEXT2 = '#6b6b68';
-const TEXT3 = '#9b9b97';
-const BORDER = 'rgba(0,0,0,0.12)';
+import {lightColors} from './theme';
 
 const SPORTS = [
   {id: 'football', label: 'Football', bg: '#EAF3DE'},
@@ -80,25 +69,29 @@ function clean(t: string) {
   return true;
 }
 
-function Avatar({name, size, photo}: any) {
-  return (
-    <View style={[styles.avatar, {width: size, height: size, borderRadius: size / 2, backgroundColor: colorFor(name)}]}>
-      {photo ? <Image source={{uri: photo}} style={{width: size, height: size, borderRadius: size / 2}} />
-        : <Text style={{fontSize: size * 0.4, fontWeight: '700', color: TEXT}}>{initials(name)}</Text>}
-    </View>
-  );
-}
-function SportTag({id}: any) {
-  const s = sportOf(id);
-  return (
-    <View style={styles.sportTag}>
-      <View style={[styles.sportDot, {backgroundColor: s?.bg || '#ccc'}]} />
-      <Text style={styles.sportTagText}>{s?.label || id}</Text>
-    </View>
-  );
-}
+export default function CommunityApp({tab, username, uid, onInbox, onMenu, colors}: any) {
+  const c = colors || lightColors;
+  const {GOLD, GOLD_DARK, GOLD_LIGHT, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = c;
+  const styles = useMemo(() => makeStyles(c), [c]);
 
-export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab: string; username: string; uid: string; onInbox?: () => void; onMenu?: () => void}) {
+  function Avatar({name, size, photo}: any) {
+    return (
+      <View style={[styles.avatar, {width: size, height: size, borderRadius: size / 2, backgroundColor: colorFor(name)}]}>
+        {photo ? <Image source={{uri: photo}} style={{width: size, height: size, borderRadius: size / 2}} />
+          : <Text style={{fontSize: size * 0.4, fontWeight: '700', color: TEXT}}>{initials(name)}</Text>}
+      </View>
+    );
+  }
+  function SportTag({id}: any) {
+    const s = sportOf(id);
+    return (
+      <View style={styles.sportTag}>
+        <View style={[styles.sportDot, {backgroundColor: s?.bg || '#ccc'}]} />
+        <Text style={styles.sportTagText}>{s?.label || id}</Text>
+      </View>
+    );
+  }
+
   const [posts, setPosts] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
@@ -865,7 +858,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu}: {tab
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c: any) {
+  const {GOLD, GOLD_DARK, GOLD_LIGHT, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = c;
+  return StyleSheet.create({
   header: {backgroundColor: BG, borderBottomWidth: 0.5, borderBottomColor: BORDER, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10},
   headerRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
   headerLogo: {fontSize: 18, fontWeight: '700', color: GOLD},
@@ -969,4 +964,5 @@ const styles = StyleSheet.create({
   resultRow: {flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, padding: 10, marginBottom: 8},
   resultName: {fontSize: 15, fontWeight: '600', color: TEXT},
   noResult: {fontSize: 13, color: TEXT2, paddingVertical: 6},
-});
+  });
+}

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useMemo} from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, SafeAreaView, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
@@ -6,20 +6,13 @@ import {
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
+import { lightColors } from './theme';
 
-const GOLD = '#C8961E';
-const GOLD_DARK = '#9A6E12';
-const GOLD_LIGHT = '#FBF1D6';
-const GOLD_TEXT = '#8A6410';
-const BG = '#ffffff';
-const BG2 = '#f5f5f4';
-const BG3 = '#eeece8';
-const TEXT = '#1a1a18';
-const TEXT2 = '#6b6b68';
-const TEXT3 = '#9b9b97';
-const BORDER = 'rgba(0,0,0,0.22)';
-
-export default function AuthScreen() {
+export default function AuthScreen({colors}: any) {
+  const c = colors || lightColors;
+  const {GOLD, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER2} = c;
+  const BORDER = c.BORDER2;
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -160,7 +153,10 @@ export default function AuthScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c: any) {
+  const {GOLD, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3} = c;
+  const BORDER = c.BORDER2;
+  return StyleSheet.create({
   safe: {flex: 1, backgroundColor: BG3},
   container: {flexGrow: 1, justifyContent: 'center', padding: 24},
   logoWrap: {alignItems: 'center', marginBottom: 36},
@@ -179,4 +175,5 @@ const styles = StyleSheet.create({
   btn: {backgroundColor: GOLD, borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 20},
   btnText: {color: 'white', fontSize: 15, fontWeight: '600'},
   switchText: {fontSize: 13, color: TEXT2, textAlign: 'center', marginTop: 16},
-});
+  });
+}

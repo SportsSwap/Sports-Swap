@@ -1,4 +1,5 @@
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useState, useEffect, useCallback, useMemo} from 'react';
+import {lightColors, darkColors} from './theme';
 import {
   SafeAreaView,
   ScrollView,
@@ -26,16 +27,7 @@ import CommunityApp from './CommunityApp';
 const {width} = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
 
-const GOLD = '#C8961E';
-const GOLD_LIGHT = '#FBF1D6';
-const GOLD_TEXT = '#8A6410';
-const BG = '#ffffff';
-const BG2 = '#f5f5f4';
-const BG3 = '#eeece8';
-const TEXT = '#1a1a18';
-const TEXT2 = '#6b6b68';
-const TEXT3 = '#9b9b97';
-const BORDER = 'rgba(0,0,0,0.12)';
+// Colours now come from the theme (light/dark) inside the component.
 
 const SPORTS = [
   {id: 'all', label: 'All', emoji: '🏆'},
@@ -84,6 +76,7 @@ export default function App() {
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(true);
   const [tab, setTab] = useState('community'); // community | market | profile
+  const [dark, setDark] = useState(false);
   const [activeSport, setActiveSport] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedListing, setSelectedListing] = useState<any>(null);
@@ -97,7 +90,7 @@ export default function App() {
   const [inboxChats, setInboxChats] = useState<any[]>([]);
   const [email, setEmail] = useState('');
   const [avatarEmoji, setAvatarEmoji] = useState('');
-  const [avatarColor, setAvatarColor] = useState(GOLD_LIGHT);
+  const [avatarColor, setAvatarColor] = useState('#FBF1D6');
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [listings, setListings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,6 +117,7 @@ export default function App() {
           if (data.avatarEmoji) setAvatarEmoji(data.avatarEmoji);
           if (data.avatarColor) setAvatarColor(data.avatarColor);
           if (Array.isArray(data.savedIds)) setSaved(new Set(data.savedIds));
+          setDark(!!data.darkMode);
         }
       }
       setAuthLoading(false);
@@ -165,18 +159,27 @@ export default function App() {
     return () => unsub();
   }, [activeChat]);
 
+  // Theme (light/dark)
+  const colors = dark ? darkColors : lightColors;
+  const {GOLD, GOLD_LIGHT, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = colors;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  function toggleDark() {
+    const nv = !dark; setDark(nv);
+    if (user) setDoc(doc(db, 'users', user.uid), {darkMode: nv}, {merge: true});
+  }
+
   // Show loading spinner while checking auth
   if (authLoading) {
     return (
-      <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#eeece8'}}>
+      <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.BG3}}>
         <Text style={{fontSize: 40, marginBottom: 12}}>🏆</Text>
-        <ActivityIndicator size="large" color="#C8961E" />
+        <ActivityIndicator size="large" color={GOLD} />
       </View>
     );
   }
 
   // Show auth screen if not logged in
-  if (!user) return <AuthScreen />;
+  if (!user) return <AuthScreen colors={colors} />;
 
   async function postListing() {
     if (!newTitle || !newPrice) return;
@@ -367,6 +370,7 @@ export default function App() {
           uid={user.uid}
           onInbox={() => setTab('inbox')}
           onMenu={() => setTab('profile')}
+          colors={colors}
         />
       ) : tab === 'inbox' ? (
         <SafeAreaView style={styles.safe}>
@@ -631,6 +635,12 @@ export default function App() {
               )}
             </TouchableOpacity>
             <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={toggleDark}>
+              <Text style={styles.menuItemIcon}>{dark ? '☀️' : '🌙'}</Text>
+              <Text style={styles.menuItemText}>Dark mode</Text>
+              <View style={[styles.toggle, dark && styles.toggleOn]}><View style={[styles.toggleKnob, dark && styles.toggleKnobOn]} /></View>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
             <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); signOut(auth);}}>
               <Text style={styles.menuItemIcon}>🚪</Text>
               <Text style={[styles.menuItemText, {color: '#D4537E'}]}>Log out</Text>
@@ -854,8 +864,14 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c: any) {
+  const {GOLD, GOLD_LIGHT, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = c;
+  return StyleSheet.create({
   safe: {flex: 1, backgroundColor: BG3},
+  toggle: {marginLeft: 'auto', width: 42, height: 24, borderRadius: 12, backgroundColor: BG3, justifyContent: 'center', padding: 2},
+  toggleOn: {backgroundColor: GOLD},
+  toggleKnob: {width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff'},
+  toggleKnobOn: {alignSelf: 'flex-end'},
   bottomNav: {flexDirection: 'row', backgroundColor: BG, borderTopWidth: 0.5, borderTopColor: BORDER, paddingBottom: 28, paddingTop: 10},
   bnavBtn: {flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 2},
   bnavText: {fontSize: 13, color: TEXT2, fontWeight: '500'},
@@ -989,4 +1005,5 @@ const styles = StyleSheet.create({
   photoDrop: {height: 150, borderRadius: 10, borderWidth: 1, borderColor: BORDER, borderStyle: 'dashed', backgroundColor: BG2, alignItems: 'center', justifyContent: 'center', marginBottom: 4, overflow: 'hidden'},
   photoPreview: {width: '100%', height: '100%', resizeMode: 'cover'},
   photoRemove: {position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center'},
-});
+  });
+}
