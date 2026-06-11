@@ -108,6 +108,10 @@ export default function App() {
   const [savedOpen, setSavedOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [blockedUsers, setBlockedUsers] = useState<any>({}); // {uid: name}
+  const [ratings, setRatings] = useState<any[]>([]);
+  const [rateTarget, setRateTarget] = useState<any>(null); // {id, name} of seller being rated
+  const [rateStars, setRateStars] = useState(0);
+  const [rateText, setRateText] = useState('');
 
   // Listen for auth state
   useEffect(() => {
@@ -139,6 +143,15 @@ export default function App() {
       const items = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
       setListings(items);
       setLoading(false);
+    });
+    return () => unsub();
+  }, [user]);
+
+  // Load seller ratings (real time)
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(collection(db, 'ratings'), snapshot => {
+      setRatings(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
     });
     return () => unsub();
   }, [user]);
@@ -188,6 +201,36 @@ export default function App() {
     if (user) setDoc(doc(db, 'users', user.uid), {blockedUsers: next}, {merge: true});
   }
   const isBlocked = (id: string) => !!blockedUsers[id];
+
+  // Seller ratings — real average from the 'ratings' collection
+  function sellerStats(sellerId: string) {
+    const rs = ratings.filter(r => r.sellerId === sellerId);
+    if (!rs.length) return null;
+    const avg = rs.reduce((sum, r) => sum + (r.stars || 0), 0) / rs.length;
+    return {avg: Math.round(avg * 10) / 10, count: rs.length};
+  }
+  const myRatingOf = (sellerId: string) => ratings.find(r => r.sellerId === sellerId && r.raterId === user?.uid);
+
+  function openRate(sellerId: string, sellerName: string) {
+    const existing = myRatingOf(sellerId);
+    setRateStars(existing?.stars || 0);
+    setRateText(existing?.text || '');
+    setRateTarget({id: sellerId, name: sellerName});
+  }
+  async function submitRating() {
+    if (!rateTarget || rateStars < 1) {
+      Alert.alert('Pick a rating', 'Tap a star to choose your rating.');
+      return;
+    }
+    await setDoc(doc(db, 'ratings', `${rateTarget.id}_${user.uid}`), {
+      sellerId: rateTarget.id, sellerName: rateTarget.name,
+      raterId: user.uid, raterName: username,
+      stars: rateStars, text: rateText.trim(),
+      createdAt: serverTimestamp(),
+    });
+    setRateTarget(null);
+    Alert.alert('Thanks!', 'Your rating helps other buyers.');
+  }
 
   // Report content — saved to a 'reports' collection for review
   function reportContent(info: any) {
@@ -295,6 +338,7 @@ export default function App() {
       title: listing.title,
       price: listing.price,
       otherName: listing.seller,
+      otherId: listing.sellerId,
     });
     setChatOpen(true);
     setSelectedListing(null);
@@ -303,7 +347,8 @@ export default function App() {
   // Open a conversation from the inbox
   function openChatFromInbox(chat: any) {
     const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
-    setActiveChat({id: chat.id, title: chat.listingTitle, price: chat.listingPrice, otherName});
+    const otherId = chat.sellerId === user.uid ? chat.buyerId : chat.sellerId;
+    setActiveChat({id: chat.id, title: chat.listingTitle, price: chat.listingPrice, otherName, otherId});
     setChatOpen(true);
     setInboxOpen(false);
   }
@@ -363,6 +408,7 @@ export default function App() {
   function renderCard(item: any) {
     const cond = condLabel(item.cond);
     const mine = item.sellerId === user.uid;
+    const st = sellerStats(item.sellerId);
     return (
       <TouchableOpacity style={styles.card} onPress={() => setSelectedListing(item)}>
         <View style={[styles.cardImg, {backgroundColor: item.bg}]}>
@@ -382,7 +428,7 @@ export default function App() {
           <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
           <Text style={styles.cardPrice}>${item.price}</Text>
           <View style={styles.cardFooter}>
-            <Text style={styles.cardSeller}>{item.seller}</Text>
+            <Text style={styles.cardSeller} numberOfLines={1}>{item.seller}{st ? ` · ${st.avg}★` : ''}</Text>
             <Text style={styles.cardLoc}>📍 {item.loc}</Text>
           </View>
           {mine ? (
@@ -622,10 +668,18 @@ export default function App() {
                 <View style={styles.sellerAvatar}>
                   <Text style={styles.sellerAvatarText}>{selectedListing?.seller}</Text>
                 </View>
-                <View>
+                <View style={{flex: 1}}>
                   <Text style={styles.sellerName}>{selectedListing?.seller}</Text>
-                  <Text style={styles.sellerRating}>4.8 ★ · Active seller</Text>
+                  {(() => {
+                    const st = selectedListing ? sellerStats(selectedListing.sellerId) : null;
+                    return <Text style={styles.sellerRating}>{st ? `${st.avg} ★ · ${st.count} rating${st.count === 1 ? '' : 's'}` : 'New seller · no ratings yet'}</Text>;
+                  })()}
                 </View>
+                {selectedListing?.sellerId !== user.uid && (
+                  <TouchableOpacity style={styles.rateBtn} onPress={() => openRate(selectedListing.sellerId, selectedListing.seller)}>
+                    <Text style={styles.rateBtnText}>{myRatingOf(selectedListing?.sellerId) ? 'Edit rating' : 'Rate'}</Text>
+                  </TouchableOpacity>
+                )}
               </View>
               {selectedListing?.sellerId === user.uid ? (
                 <TouchableOpacity style={styles.soldBtn} onPress={() => markAsSold(selectedListing)}>
@@ -811,6 +865,11 @@ export default function App() {
                 <Text style={styles.chatItemName} numberOfLines={1}>{activeChat?.title}</Text>
                 <Text style={styles.chatSeller}>{activeChat?.otherName}</Text>
               </View>
+              {activeChat?.otherId ? (
+                <TouchableOpacity style={styles.rateBtn} onPress={() => openRate(activeChat.otherId, activeChat.otherName)}>
+                  <Text style={styles.rateBtnText}>★ Rate</Text>
+                </TouchableOpacity>
+              ) : null}
               <Text style={styles.chatPrice}>${activeChat?.price}</Text>
             </View>
             <ScrollView style={styles.chatMessages} contentContainerStyle={{padding: 14}}>
@@ -895,6 +954,39 @@ export default function App() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Rate a seller */}
+      <Modal visible={!!rateTarget} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={styles.detModal}>
+            <View style={styles.detHeader}>
+              <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>Rate {rateTarget?.name}</Text>
+              <TouchableOpacity onPress={() => setRateTarget(null)}>
+                <Text style={styles.closeX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{flexDirection: 'row', justifyContent: 'center', gap: 10, marginVertical: 18}}>
+              {[1, 2, 3, 4, 5].map(s => (
+                <TouchableOpacity key={s} onPress={() => setRateStars(s)}>
+                  <Text style={{fontSize: 38, color: s <= rateStars ? GOLD : colors.BORDER2}}>★</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.postLabel}>Comment (optional)</Text>
+            <TextInput
+              style={[styles.postInput, {height: 80, textAlignVertical: 'top'}]}
+              multiline
+              placeholder="How was the sale? Was the item as described?"
+              placeholderTextColor={TEXT3}
+              value={rateText}
+              onChangeText={setRateText}
+            />
+            <Btn style={[styles.cbtn, {marginTop: 16, marginBottom: 8}]} onPress={submitRating}>
+              <Text style={styles.cbtnText}>Submit rating</Text>
+            </Btn>
+          </View>
+        </View>
       </Modal>
 
       {/* Settings */}
@@ -996,6 +1088,8 @@ function makeStyles(c: any) {
   sellerAvatarText: {fontSize: 12, fontWeight: '600', color: '#27500A'},
   sellerName: {fontSize: 14, fontWeight: '500', color: TEXT},
   sellerRating: {fontSize: 12, color: TEXT2},
+  rateBtn: {backgroundColor: GOLD_LIGHT, borderWidth: 0.5, borderColor: GOLD, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7},
+  rateBtnText: {fontSize: 12, fontWeight: '700', color: GOLD_TEXT},
   cbtn: {backgroundColor: GOLD, borderRadius: 16, paddingVertical: 15, alignItems: 'center', shadowColor: GOLD, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: {width: 0, height: 4}, elevation: 3},
   cbtnText: {color: 'white', fontSize: 15, fontWeight: '700', letterSpacing: 0.3},
   chatModal: {backgroundColor: BG, borderTopLeftRadius: 16, borderTopRightRadius: 16, height: '85%', flexDirection: 'column'},
