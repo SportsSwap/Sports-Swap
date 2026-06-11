@@ -18,6 +18,7 @@ import {
   Alert,
   Image,
   Linking,
+  RefreshControl,
 } from 'react-native';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { db, auth } from './firebase';
@@ -68,6 +69,19 @@ const AD_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeWaKXksc7LeElZjiE
 const AVATAR_EMOJIS = ['🏆', '⚽', '🏀', '🎾', '🏈', '🏐', '🏉', '⛳', '🏏', '🥊', '🏄', '🚴', '🏊', '⛷️', '🏋️', '😎', '🔥', '⭐', '👟', '🧢'];
 const AVATAR_COLORS = ['#EAF3DE', '#FAEEDA', '#E6F1FB', '#FAECE7', '#EEEDFE', '#FCEBEB', '#FBF1D6', '#E0F2F1'];
 
+function notifAgo(ts: any) {
+  if (!ts || !ts.seconds) return 'just now';
+  const secs = Math.floor(Date.now() / 1000) - ts.seconds;
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return mins + 'm ago';
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  if (days <= 7) return days + 'd ago';
+  return new Date(ts.seconds * 1000).toLocaleDateString(undefined, {day: 'numeric', month: 'short'});
+}
+
 function condLabel(c: string) {
   if (c === 'new') return {label: 'New', color: '#27500A', bg: '#EAF3DE'};
   if (c === 'like') return {label: 'Like new', color: '#0C447C', bg: '#E6F1FB'};
@@ -103,7 +117,12 @@ export default function App() {
   const [newSport, setNewSport] = useState('football');
   const [newLoc, setNewLoc] = useState('');
   const [newCond, setNewCond] = useState('used');
-  const [newPhoto, setNewPhoto] = useState<string | null>(null);
+  const [newPhotos, setNewPhotos] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [notifs, setNotifs] = useState<any[]>([]);
+  const [inboxView, setInboxView] = useState<'messages' | 'activity'>('messages');
+  const [photoPage, setPhotoPage] = useState(0);
   const [myListingsOpen, setMyListingsOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -143,6 +162,18 @@ export default function App() {
       const items = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
       setListings(items);
       setLoading(false);
+    });
+    return () => unsub();
+  }, [user]);
+
+  // Load my activity notifications (real time)
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'notifs'), where('toId', '==', user.uid));
+    const unsub = onSnapshot(q, snapshot => {
+      const items = snapshot.docs.map(d => ({id: d.id, ...d.data()} as any));
+      items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setNotifs(items);
     });
     return () => unsub();
   }, [user]);
@@ -228,6 +259,12 @@ export default function App() {
       stars: rateStars, text: rateText.trim(),
       createdAt: serverTimestamp(),
     });
+    // Let the seller know
+    await addDoc(collection(db, 'notifs'), {
+      toId: rateTarget.id, kind: 'rating', read: false,
+      text: `${username} rated you ${rateStars} star${rateStars === 1 ? '' : 's'}${rateText.trim() ? `: "${rateText.trim().slice(0, 60)}"` : ''}`,
+      createdAt: serverTimestamp(),
+    });
     setRateTarget(null);
     Alert.alert('Thanks!', 'Your rating helps other buyers.');
   }
@@ -264,7 +301,7 @@ export default function App() {
   async function postListing() {
     if (!newTitle || !newPrice) return;
     const sport = SPORTS.find(s => s.id === newSport);
-    await addDoc(collection(db, 'listings'), {
+    const data = {
       title: newTitle,
       price: parseFloat(newPrice),
       sport: newSport,
@@ -274,10 +311,28 @@ export default function App() {
       sellerId: user.uid,
       bg: sport?.bg || '#EAF3DE',
       emoji: sport?.emoji || '🏆',
-      photo: newPhoto || null,
-      createdAt: serverTimestamp(),
-    });
-    setNewTitle(''); setNewPrice(''); setNewLoc(''); setNewPhoto(null); setPostOpen(false);
+      photo: newPhotos[0] || null,
+      photos: newPhotos,
+    };
+    if (editingId) {
+      await updateDoc(doc(db, 'listings', editingId), data);
+    } else {
+      await addDoc(collection(db, 'listings'), {...data, createdAt: serverTimestamp()});
+    }
+    setNewTitle(''); setNewPrice(''); setNewLoc(''); setNewPhotos([]); setEditingId(null); setPostOpen(false);
+  }
+
+  // Open the post form pre-filled to edit an existing listing
+  function startEdit(item: any) {
+    setNewTitle(item.title);
+    setNewPrice(String(item.price));
+    setNewSport(item.sport);
+    setNewCond(item.cond);
+    setNewLoc(item.loc === 'Unknown' ? '' : item.loc);
+    setNewPhotos(item.photos || (item.photo ? [item.photo] : []));
+    setEditingId(item.id);
+    setSelectedListing(null);
+    setPostOpen(true);
   }
 
   function markAsSold(listing: any) {
@@ -309,6 +364,23 @@ export default function App() {
 
   // Hide conversations with people you've blocked
   const visibleChats = inboxChats.filter(ch => !(ch.participants || []).some((p: string) => p !== user.uid && isBlocked(p)));
+
+  // Unread: last message from someone else, newer than when I last opened the chat
+  const isUnread = (ch: any) =>
+    ch.lastSenderId && ch.lastSenderId !== user.uid &&
+    (ch.updatedAt?.seconds || 0) > (ch.reads?.[user.uid]?.seconds || 0);
+  const unreadMsgs = visibleChats.filter(isUnread).length;
+  const unreadNotifs = notifs.filter(n => !n.read).length;
+  const unreadTotal = unreadMsgs + unreadNotifs;
+
+  // Mark a chat as read when you open it
+  const markChatRead = (chatId: string) =>
+    setDoc(doc(db, 'chats', chatId), {reads: {[user.uid]: serverTimestamp()}}, {merge: true});
+
+  // Mark all activity notifications as read (when the Activity tab is viewed)
+  function markNotifsRead() {
+    notifs.filter(n => !n.read).forEach(n => updateDoc(doc(db, 'notifs', n.id), {read: true}));
+  }
 
   const filtered = listings.filter(l => {
     if (isBlocked(l.sellerId)) return false;
@@ -342,6 +414,7 @@ export default function App() {
     });
     setChatOpen(true);
     setSelectedListing(null);
+    markChatRead(chatId);
   }
 
   // Open a conversation from the inbox
@@ -351,6 +424,7 @@ export default function App() {
     setActiveChat({id: chat.id, title: chat.listingTitle, price: chat.listingPrice, otherName, otherId});
     setChatOpen(true);
     setInboxOpen(false);
+    markChatRead(chat.id);
   }
 
   async function sendMessage(text: string) {
@@ -395,13 +469,17 @@ export default function App() {
     ]);
   }
   function grabPhoto(mode: 'camera' | 'library') {
+    const remaining = 4 - newPhotos.length;
+    if (remaining <= 0) { Alert.alert('Photo limit', 'You can add up to 4 photos per listing.'); return; }
     const opts = {mediaType: 'photo' as const, maxWidth: 1000, maxHeight: 1000, quality: 0.6 as const, includeBase64: true};
     const cb = (res: any) => {
       if (res.didCancel || res.errorCode) return;
-      const asset = res.assets?.[0];
-      if (asset?.base64) setNewPhoto(`data:${asset.type || 'image/jpeg'};base64,${asset.base64}`);
+      const added = (res.assets || [])
+        .filter((a: any) => a?.base64)
+        .map((a: any) => `data:${a.type || 'image/jpeg'};base64,${a.base64}`);
+      if (added.length) setNewPhotos(prev => [...prev, ...added].slice(0, 4));
     };
-    mode === 'camera' ? launchCamera(opts, cb) : launchImageLibrary(opts, cb);
+    mode === 'camera' ? launchCamera(opts, cb) : launchImageLibrary({...opts, selectionLimit: remaining}, cb);
   }
 
   // Shared card used by the main grid, My Listings and Saved
@@ -468,7 +546,37 @@ export default function App() {
             <Logo colors={colors} />
             <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}><Text style={styles.avatarText}>{username.charAt(0).toUpperCase()}</Text></TouchableOpacity>
           </View>
-          {visibleChats.length === 0 ? (
+
+          {/* Messages | Activity switcher */}
+          <View style={styles.segmentRow}>
+            <TouchableOpacity style={[styles.segment, inboxView === 'messages' && styles.segmentActive]} onPress={() => setInboxView('messages')}>
+              <Text style={[styles.segmentText, inboxView === 'messages' && styles.segmentTextActive]}>Messages{unreadMsgs > 0 ? ` (${unreadMsgs})` : ''}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.segment, inboxView === 'activity' && styles.segmentActive]} onPress={() => { setInboxView('activity'); markNotifsRead(); }}>
+              <Text style={[styles.segmentText, inboxView === 'activity' && styles.segmentTextActive]}>Activity{unreadNotifs > 0 ? ` (${unreadNotifs})` : ''}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {inboxView === 'activity' ? (
+            notifs.length === 0 ? (
+              <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+                <Text style={{fontWeight: '500', color: TEXT, marginBottom: 4}}>No activity yet</Text>
+                <Text style={{fontSize: 13, color: TEXT2}}>Comments, ratings and follows show up here</Text>
+              </View>
+            ) : (
+              <ScrollView contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 90}}>
+                {notifs.map(n => (
+                  <View key={n.id} style={[styles.notifRow, !n.read && styles.notifUnread]}>
+                    <View style={[styles.notifDot, {backgroundColor: n.read ? 'transparent' : GOLD}]} />
+                    <View style={{flex: 1}}>
+                      <Text style={styles.notifText}>{n.text}</Text>
+                      <Text style={styles.notifTime}>{notifAgo(n.createdAt)}</Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            )
+          ) : visibleChats.length === 0 ? (
             <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
               <Text style={{fontSize: 34, marginBottom: 10}}>💬</Text>
               <Text style={{fontWeight: '500', color: TEXT, marginBottom: 4}}>No messages yet</Text>
@@ -478,16 +586,18 @@ export default function App() {
             <ScrollView contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 90}}>
               {visibleChats.map(chat => {
                 const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
+                const unread = isUnread(chat);
                 return (
                   <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
                     <View style={[styles.convoAvatar, {backgroundColor: chat.listingBg || BG2}]}>
                       <Text style={{fontSize: 20}}>{chat.listingEmoji || '🏆'}</Text>
                     </View>
                     <View style={{flex: 1, minWidth: 0}}>
-                      <Text style={styles.convoName} numberOfLines={1}>{otherName}</Text>
+                      <Text style={[styles.convoName, unread && {fontWeight: '800'}]} numberOfLines={1}>{otherName}</Text>
                       <Text style={styles.convoItem} numberOfLines={1}>{chat.listingTitle}</Text>
-                      <Text style={styles.convoLast} numberOfLines={1}>{chat.lastMessage || 'No messages yet'}</Text>
+                      <Text style={[styles.convoLast, unread && {color: TEXT, fontWeight: '600'}]} numberOfLines={1}>{chat.lastMessage || 'No messages yet'}</Text>
                     </View>
+                    {unread && <View style={styles.unreadDot} />}
                     {chat.listingPrice ? <Text style={styles.convoPrice}>${chat.listingPrice}</Text> : null}
                   </TouchableOpacity>
                 );
@@ -573,6 +683,13 @@ export default function App() {
         numColumns={2}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={styles.row}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} tintColor={GOLD} onRefresh={() => {
+            // Data is already live via Firebase — give quick visual feedback
+            setRefreshing(true);
+            setTimeout(() => setRefreshing(false), 600);
+          }} />
+        }
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyText}>No listings found</Text>
@@ -588,28 +705,37 @@ export default function App() {
         <View style={styles.overlay}>
           <View style={styles.detModal}>
             <View style={styles.detHeader}>
-              <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>List your gear</Text>
-              <TouchableOpacity onPress={() => setPostOpen(false)}>
+              <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>{editingId ? 'Edit listing' : 'List your gear'}</Text>
+              <TouchableOpacity onPress={() => { setPostOpen(false); setEditingId(null); }}>
                 <Text style={styles.closeX}>✕</Text>
               </TouchableOpacity>
             </View>
             <ScrollView>
-              <Text style={styles.postLabel}>Photo</Text>
-              <TouchableOpacity style={styles.photoDrop} onPress={pickListingPhoto}>
-                {newPhoto ? (
-                  <>
-                    <Image source={{uri: newPhoto}} style={styles.photoPreview} />
-                    <TouchableOpacity style={styles.photoRemove} onPress={() => setNewPhoto(null)}>
-                      <Text style={{color: 'white', fontSize: 14}}>✕</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
+              <Text style={styles.postLabel}>Photos ({newPhotos.length}/4)</Text>
+              {newPhotos.length === 0 ? (
+                <TouchableOpacity style={styles.photoDrop} onPress={pickListingPhoto}>
                   <View style={{alignItems: 'center'}}>
                     <Text style={{fontSize: 28}}>📷</Text>
-                    <Text style={{color: TEXT2, fontSize: 13, marginTop: 4}}>Add a photo of your gear</Text>
+                    <Text style={{color: TEXT2, fontSize: 13, marginTop: 4}}>Add up to 4 photos of your gear</Text>
                   </View>
-                )}
-              </TouchableOpacity>
+                </TouchableOpacity>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 4}}>
+                  {newPhotos.map((ph, i) => (
+                    <View key={i} style={styles.photoThumbWrap}>
+                      <Image source={{uri: ph}} style={styles.photoThumb} />
+                      <TouchableOpacity style={styles.photoRemove} onPress={() => setNewPhotos(prev => prev.filter((_, j) => j !== i))}>
+                        <Text style={{color: 'white', fontSize: 12}}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  {newPhotos.length < 4 && (
+                    <TouchableOpacity style={styles.photoAddTile} onPress={pickListingPhoto}>
+                      <Text style={{fontSize: 22, color: GOLD}}>＋</Text>
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
+              )}
               <Text style={styles.postLabel}>Item name</Text>
               <TextInput style={styles.postInput} placeholder="e.g. Adidas football boots" placeholderTextColor={TEXT3} value={newTitle} onChangeText={setNewTitle} />
               <Text style={styles.postLabel}>Price ($)</Text>
@@ -635,7 +761,7 @@ export default function App() {
               <Text style={styles.postLabel}>Location</Text>
               <TextInput style={styles.postInput} placeholder="City" placeholderTextColor={TEXT3} value={newLoc} onChangeText={setNewLoc} />
               <TouchableOpacity style={[styles.cbtn, {marginTop: 16}]} onPress={postListing}>
-                <Text style={styles.cbtnText}>Post listing</Text>
+                <Text style={styles.cbtnText}>{editingId ? 'Save changes' : 'Post listing'}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -653,11 +779,35 @@ export default function App() {
                   <Text style={styles.closeX}>✕</Text>
                 </TouchableOpacity>
               </View>
-              <View style={[styles.detImg, {backgroundColor: selectedListing?.bg}]}>
-                {selectedListing?.photo
-                  ? <Image source={{uri: selectedListing.photo}} style={styles.detImgPhoto} />
-                  : <Text style={styles.detEmoji}>{selectedListing?.emoji}</Text>}
-              </View>
+              {(() => {
+                const pics = selectedListing?.photos?.length ? selectedListing.photos : (selectedListing?.photo ? [selectedListing.photo] : []);
+                if (!pics.length) {
+                  return (
+                    <View style={[styles.detImg, {backgroundColor: selectedListing?.bg}]}>
+                      <Text style={styles.detEmoji}>{selectedListing?.emoji}</Text>
+                    </View>
+                  );
+                }
+                return (
+                  <View style={{marginBottom: 14}}>
+                    <ScrollView
+                      horizontal pagingEnabled showsHorizontalScrollIndicator={false}
+                      onScroll={e => setPhotoPage(Math.round(e.nativeEvent.contentOffset.x / (width - 44)))}
+                      scrollEventThrottle={16}>
+                      {pics.map((ph: string, i: number) => (
+                        <Image key={i} source={{uri: ph}} style={[styles.detImgPhoto, {width: width - 44, aspectRatio: 3 / 2}]} />
+                      ))}
+                    </ScrollView>
+                    {pics.length > 1 && (
+                      <View style={{flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 8}}>
+                        {pics.map((_: string, i: number) => (
+                          <View key={i} style={{width: 7, height: 7, borderRadius: 4, backgroundColor: i === photoPage ? GOLD : colors.BORDER2}} />
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
               <Text style={styles.detTitle}>{selectedListing?.title}</Text>
               <View style={styles.detTags}>
                 <View style={[styles.tag, {backgroundColor: BG2}]}>
@@ -682,9 +832,14 @@ export default function App() {
                 )}
               </View>
               {selectedListing?.sellerId === user.uid ? (
-                <TouchableOpacity style={styles.soldBtn} onPress={() => markAsSold(selectedListing)}>
-                  <Text style={styles.soldBtnText}>✓ Mark as sold</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity style={[styles.cbtn, {marginBottom: 10}]} onPress={() => startEdit(selectedListing)}>
+                    <Text style={styles.cbtnText}>Edit listing</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.soldBtn} onPress={() => markAsSold(selectedListing)}>
+                    <Text style={styles.soldBtnText}>✓ Mark as sold</Text>
+                  </TouchableOpacity>
+                </>
               ) : (
                 <>
                   <TouchableOpacity style={styles.cbtn} onPress={() => openChat(selectedListing)}>
@@ -930,7 +1085,7 @@ export default function App() {
             </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('inbox');}}>
               <Text style={styles.menuItemText}>Inbox</Text>
-              {visibleChats.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{visibleChats.length}</Text></View>)}
+              {unreadTotal > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{unreadTotal}</Text></View>)}
             </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('market'); setMyListingsOpen(true);}}>
               <Text style={styles.menuItemText}>My Listings</Text>
@@ -1009,7 +1164,9 @@ export default function App() {
           <TouchableOpacity key={t.id} style={styles.bnavBtn} onPress={() => setTab(t.id)}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <Text style={[styles.bnavText, tab === t.id && styles.bnavActive]}>{t.label}</Text>
-              {t.id === 'inbox' && visibleChats.length > 0 && <View style={styles.navDot} />}
+              {t.id === 'inbox' && unreadTotal > 0 && (
+                <View style={styles.navBadge}><Text style={styles.navBadgeText}>{unreadTotal > 9 ? '9+' : unreadTotal}</Text></View>
+              )}
             </View>
           </TouchableOpacity>
         ))}
@@ -1156,6 +1313,24 @@ function makeStyles(c: any) {
   convoItem: {fontSize: 12, color: GOLD, marginTop: 1},
   convoLast: {fontSize: 12, color: TEXT2, marginTop: 1},
   convoPrice: {fontSize: 15, fontWeight: '700', color: GOLD},
+  // Inbox segments + activity
+  segmentRow: {flexDirection: 'row', backgroundColor: BG2, borderRadius: 12, padding: 4, marginHorizontal: 16, marginTop: 12, marginBottom: 6},
+  segment: {flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 9},
+  segmentActive: {backgroundColor: BG, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: {width: 0, height: 1}, elevation: 1},
+  segmentText: {fontSize: 13, color: TEXT2, fontWeight: '500'},
+  segmentTextActive: {color: TEXT, fontWeight: '700'},
+  notifRow: {flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, borderBottomWidth: 0.5, borderBottomColor: BORDER},
+  notifUnread: {},
+  notifDot: {width: 8, height: 8, borderRadius: 4},
+  notifText: {fontSize: 14, color: TEXT, lineHeight: 19},
+  notifTime: {fontSize: 12, color: TEXT2, marginTop: 2},
+  unreadDot: {width: 9, height: 9, borderRadius: 5, backgroundColor: GOLD},
+  navBadge: {backgroundColor: GOLD, borderRadius: 9, minWidth: 17, height: 17, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', marginLeft: 5},
+  navBadgeText: {color: 'white', fontSize: 10, fontWeight: '800'},
+  // Photo picker thumbnails
+  photoThumbWrap: {width: 90, height: 90, borderRadius: 12, marginRight: 8, overflow: 'hidden'},
+  photoThumb: {width: '100%', height: '100%', resizeMode: 'cover'},
+  photoAddTile: {width: 90, height: 90, borderRadius: 12, borderWidth: 1, borderColor: GOLD, borderStyle: 'dashed', backgroundColor: BG2, alignItems: 'center', justifyContent: 'center'},
   // Photos
   cardImgPhoto: {width: '100%', height: '100%', resizeMode: 'cover'},
   detImgPhoto: {width: '100%', height: '100%', borderRadius: 10, resizeMode: 'cover'},

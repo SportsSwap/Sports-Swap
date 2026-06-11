@@ -154,15 +154,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   async function follow(other: any) {
     if (other.id === uid || isFollowing(other.id)) return;
     await addDoc(collection(db, 'follows'), {followerId: uid, followerName: username, followingId: other.id, followingName: other.name, createdAt: serverTimestamp()});
-    // Notify them in their inbox
-    const chatId = 'dm_' + [uid, other.id].sort().join('_');
-    await setDoc(doc(db, 'chats', chatId), {
-      participants: [uid, other.id], sellerId: other.id, sellerName: other.name, buyerId: uid, buyerName: username,
-      listingTitle: 'New follower', listingPrice: '', listingEmoji: '', listingBg: '#FBF1D6',
-      lastMessage: username + ' started following you', updatedAt: serverTimestamp(),
-    }, {merge: true});
-    await addDoc(collection(db, 'chats', chatId, 'messages'), {
-      senderId: uid, senderName: username, text: username + ' started following you!', createdAt: serverTimestamp(),
+    // Notify them in Inbox > Activity
+    await addDoc(collection(db, 'notifs'), {
+      toId: other.id, kind: 'follow', read: false,
+      text: username + ' started following you',
+      createdAt: serverTimestamp(),
     });
   }
   async function unfollow(otherId: string) {
@@ -182,6 +178,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     if (!text.trim() || !clean(text)) return false;
     const next = [...(p.comments || []), {authorId: uid, authorName: username, text: text.trim(), votes: 0}];
     await updateDoc(doc(db, 'cposts', p.id), {comments: next});
+    // Let the post author know (in Inbox > Activity)
+    if (p.authorId !== uid) {
+      await addDoc(collection(db, 'notifs'), {
+        toId: p.authorId, kind: 'comment', read: false,
+        text: `${username} commented on your post: "${text.trim().slice(0, 60)}"`,
+        createdAt: serverTimestamp(),
+      });
+    }
     return true;
   }
   // Event RSVP (opt in / opt out)
@@ -205,6 +209,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     if (c.authorId !== uid) return;
     const next = (p.comments || []).filter((x: any) => x !== c);
     await updateDoc(doc(db, 'cposts', p.id), {comments: next});
+  }
+
+  // Save / bookmark community posts (stored on your user doc)
+  const savedPostIds: string[] = (users.find(u => u.id === uid)?.savedPostIds) || [];
+  const isPostSaved = (id: string) => savedPostIds.includes(id);
+  function toggleSavePost(p: any) {
+    const next = isPostSaved(p.id) ? savedPostIds.filter(x => x !== p.id) : [...savedPostIds, p.id];
+    setDoc(doc(db, 'users', uid), {savedPostIds: next}, {merge: true});
   }
 
   // Repost to the community feed
@@ -305,6 +317,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           <Btn style={styles.actPill} onPress={onOpen} scaleTo={1.1}><Text style={styles.actPillText}>{(p.comments || []).length} comments</Text></Btn>
           <Btn style={styles.actPill} onPress={() => repost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Repost</Text></Btn>
           <Btn style={styles.actPill} onPress={() => setSharePost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Share</Text></Btn>
+          <Btn style={[styles.actPill, isPostSaved(p.id) && {backgroundColor: GOLD_LIGHT}]} onPress={() => toggleSavePost(p)} scaleTo={1.1}><Text style={[styles.actPillText, isPostSaved(p.id) && {color: GOLD_TEXT}]}>{isPostSaved(p.id) ? 'Saved' : 'Save'}</Text></Btn>
           {canPin && <Btn style={styles.actPill} onPress={() => togglePin(p)} scaleTo={1.1}><Text style={styles.actPillText}>{p.pinned ? 'Unpin' : 'Pin'}</Text></Btn>}
           {p.authorId === uid && <Btn style={styles.actPill} onPress={() => deletePost(p)} scaleTo={1.1}><Text style={[styles.actPillText, {color: '#C0506E'}]}>Delete</Text></Btn>}
           {p.authorId !== uid && onReport && <Btn style={styles.actPill} onPress={() => onReport({type: 'post', targetId: p.id, targetText: p.text || '', reportedId: p.authorId, reportedName: p.authorName})} scaleTo={1.1}><Text style={styles.actPillText}>Report</Text></Btn>}
@@ -346,8 +359,34 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     }
 
     const feed = posts.filter(p => !p.groupId && (sportFilter === 'all' || p.sport === sportFilter));
+
+    // Trending: most-voted public posts from the last 7 days
+    const weekAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
+    const trending = posts
+      .filter(p => !p.groupId && (p.votes || 0) > 0 && (p.createdAt?.seconds || 0) > weekAgo)
+      .sort((a, b) => (b.votes || 0) - (a.votes || 0))
+      .slice(0, 3);
+
     return (
       <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 90}}>
+        {trending.length > 0 && (
+          <>
+            <Text style={styles.sectionLabel}>Trending this week</Text>
+            <View style={[styles.pageCard, {paddingVertical: 6, marginBottom: 16}]}>
+              {trending.map((p, i) => (
+                <TouchableOpacity key={p.id} style={[styles.trendRow, i < trending.length - 1 && {borderBottomWidth: 0.5, borderBottomColor: BORDER}]} onPress={() => setThreadId(p.id)}>
+                  <Text style={styles.trendRank}>{i + 1}</Text>
+                  <View style={{flex: 1}}>
+                    <Text style={styles.trendText} numberOfLines={1}>{p.text || (p.kind === 'achievement' ? 'Achievement' : 'Photo post')}</Text>
+                    <Text style={styles.meta}>{p.authorName} · {sportOf(p.sport)?.label || p.sport}</Text>
+                  </View>
+                  <Text style={styles.trendVotes}>▲ {p.votes || 0}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
+
         {/* Discussion groups */}
         <Text style={styles.sectionLabel}>Discussion groups</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 16}}>
@@ -733,10 +772,16 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         <View style={styles.profileTabs}>
           <TouchableOpacity style={[styles.pTab, profileTab === 'posts' && styles.pTabActive]} onPress={() => setProfileTab('posts')}><Text style={[styles.pTabText, profileTab === 'posts' && {color: GOLD}]}>Posts</Text></TouchableOpacity>
           <TouchableOpacity style={[styles.pTab, profileTab === 'replies' && styles.pTabActive]} onPress={() => setProfileTab('replies')}><Text style={[styles.pTabText, profileTab === 'replies' && {color: GOLD}]}>Replies</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.pTab, profileTab === 'saved' && styles.pTabActive]} onPress={() => setProfileTab('saved')}><Text style={[styles.pTabText, profileTab === 'saved' && {color: GOLD}]}>Saved</Text></TouchableOpacity>
         </View>
         {profileTab === 'posts'
           ? (myPosts.length ? myPosts.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} />) : <Text style={{color: TEXT2, textAlign: 'center', padding: 24}}>No posts yet. Tap “New post”.</Text>)
-          : (replies.length ? replies.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} />) : <Text style={{color: TEXT2, textAlign: 'center', padding: 24}}>No replies yet.</Text>)}
+          : profileTab === 'replies'
+          ? (replies.length ? replies.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} />) : <Text style={{color: TEXT2, textAlign: 'center', padding: 24}}>No replies yet.</Text>)
+          : (() => {
+              const savedList = posts.filter(p => isPostSaved(p.id));
+              return savedList.length ? savedList.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} />) : <Text style={{color: TEXT2, textAlign: 'center', padding: 24}}>No saved posts yet — tap “Save” on any post.</Text>;
+            })()}
       </ScrollView>
     );
   }
@@ -1048,5 +1093,9 @@ function makeStyles(c: any) {
   resultRow: {flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, padding: 10, marginBottom: 8},
   resultName: {fontSize: 15, fontWeight: '600', color: TEXT},
   noResult: {fontSize: 13, color: TEXT2, paddingVertical: 6},
+  trendRow: {flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11},
+  trendRank: {fontSize: 16, fontWeight: '800', color: GOLD, width: 22, textAlign: 'center'},
+  trendText: {fontSize: 14, fontWeight: '600', color: TEXT},
+  trendVotes: {fontSize: 13, fontWeight: '700', color: TEXT2},
   });
 }
