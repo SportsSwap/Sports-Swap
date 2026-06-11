@@ -71,7 +71,7 @@ function clean(t: string) {
   return true;
 }
 
-export default function CommunityApp({tab, username, uid, onInbox, onMenu, colors}: any) {
+export default function CommunityApp({tab, username, uid, onInbox, onMenu, colors, blocked = {}, onBlock, onReport}: any) {
   const c = colors || lightColors;
   const {GOLD, GOLD_DARK, GOLD_LIGHT, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = c;
   const styles = useMemo(() => makeStyles(c), [c]);
@@ -94,7 +94,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     );
   }
 
-  const [posts, setPosts] = useState<any[]>([]);
+  const [allPosts, setAllPosts] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,7 +119,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   // Live data from Firebase
   useEffect(() => {
     const u1 = onSnapshot(query(collection(db, 'cposts'), orderBy('createdAt', 'desc')), snap => {
-      setPosts(snap.docs.map(d => ({id: d.id, ...d.data()})));
+      setAllPosts(snap.docs.map(d => ({id: d.id, ...d.data()})));
       setLoading(false);
     });
     const u2 = onSnapshot(collection(db, 'groups'), snap => {
@@ -133,6 +133,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     });
     return () => { u1(); u2(); u3(); u4(); };
   }, []);
+
+  // Hide content from people you've blocked
+  const posts = allPosts.filter(p => !blocked[p.authorId]);
 
   const thread = posts.find(p => p.id === threadId);
   const group = groups.find(g => g.id === groupId);
@@ -304,6 +307,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           <Btn style={styles.actPill} onPress={() => setSharePost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Share</Text></Btn>
           {canPin && <Btn style={styles.actPill} onPress={() => togglePin(p)} scaleTo={1.1}><Text style={styles.actPillText}>{p.pinned ? 'Unpin' : 'Pin'}</Text></Btn>}
           {p.authorId === uid && <Btn style={styles.actPill} onPress={() => deletePost(p)} scaleTo={1.1}><Text style={[styles.actPillText, {color: '#C0506E'}]}>Delete</Text></Btn>}
+          {p.authorId !== uid && onReport && <Btn style={styles.actPill} onPress={() => onReport({type: 'post', targetId: p.id, targetText: p.text || '', reportedId: p.authorId, reportedName: p.authorName})} scaleTo={1.1}><Text style={styles.actPillText}>Report</Text></Btn>}
         </View>
       </TouchableOpacity>
     );
@@ -315,7 +319,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
     // While searching, show matching People & Groups (not posts) — live typeahead
     if (q) {
-      const people = users.filter(u => (u.username || '').toLowerCase().includes(q));
+      const people = users.filter(u => !blocked[u.id] && (u.username || '').toLowerCase().includes(q));
       const grps = groups.filter(g => (g.name || '').toLowerCase().includes(q));
       return (
         <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 90}} keyboardShouldPersistTaps="handled">
@@ -519,7 +523,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   function ThreadView() {
     const p = thread; if (!p) return null;
     const [ct, setCt] = useState('');
-    const sorted = [...(p.comments || [])].sort((a, b) => (b.votes || 0) - (a.votes || 0));
+    const sorted = [...(p.comments || [])].filter((cm: any) => !blocked[cm.authorId]).sort((a, b) => (b.votes || 0) - (a.votes || 0));
     return (
       <Modal visible animationType="slide" onRequestClose={() => setThreadId(null)}>
         <View style={{flex: 1, backgroundColor: BG3}}>
@@ -540,6 +544,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
                 <Btn style={styles.actPill} onPress={() => repost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Repost</Text></Btn>
                 <Btn style={styles.actPill} onPress={() => setSharePost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Share</Text></Btn>
                 {p.authorId === uid && <Btn style={styles.actPill} onPress={() => deletePost(p)} scaleTo={1.1}><Text style={[styles.actPillText, {color: '#C0506E'}]}>Delete</Text></Btn>}
+                {p.authorId !== uid && onReport && <Btn style={styles.actPill} onPress={() => onReport({type: 'post', targetId: p.id, targetText: p.text || '', reportedId: p.authorId, reportedName: p.authorName})} scaleTo={1.1}><Text style={styles.actPillText}>Report</Text></Btn>}
               </View>
               <View style={styles.commentRow}>
                 <TextInput style={styles.commentInput} placeholder="Add a comment…" placeholderTextColor={TEXT3} value={ct} onChangeText={setCt} />
@@ -792,6 +797,25 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               {!isMe && (isFollowing(u.id)
                 ? <Btn style={[styles.smallBtn, styles.smallBtnAlt, {marginTop: 14}]} onPress={() => unfollow(u.id)}><Text style={styles.smallBtnText}>Following — tap to unfollow</Text></Btn>
                 : <Btn style={[styles.smallBtn, styles.smallBtnGold, {marginTop: 14}]} onPress={() => follow(u)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>+ Follow</Text></Btn>
+              )}
+              {!isMe && (
+                <View style={{flexDirection: 'row', justifyContent: 'center', gap: 24, marginTop: 12}}>
+                  {onReport && (
+                    <TouchableOpacity onPress={() => onReport({type: 'user', targetId: u.id, targetText: '', reportedId: u.id, reportedName: u.name})}>
+                      <Text style={{fontSize: 13, color: TEXT3, fontWeight: '500'}}>Report</Text>
+                    </TouchableOpacity>
+                  )}
+                  {onBlock && (
+                    <TouchableOpacity onPress={() => {
+                      Alert.alert('Block ' + u.name + '?', "You won't see their posts, listings or messages anymore. You can unblock them in Settings.", [
+                        {text: 'Cancel', style: 'cancel'},
+                        {text: 'Block', style: 'destructive', onPress: () => { onBlock(u.id, u.name); setViewUser(null); }},
+                      ]);
+                    }}>
+                      <Text style={{fontSize: 13, color: '#C0506E', fontWeight: '500'}}>Block</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               )}
             </View>
             <Text style={[styles.sectionLabel, {marginTop: 16}]}>{isMe ? 'Your posts' : 'Posts'}</Text>

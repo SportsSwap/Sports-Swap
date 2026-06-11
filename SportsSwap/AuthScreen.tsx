@@ -130,6 +130,12 @@ export default function AuthScreen({colors}: any) {
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
+            {mode === 'signup' && (
+              <Text style={styles.termsText}>
+                By creating an account you agree to our Terms of Use, Privacy Policy and Community Guidelines (available in Settings). There is zero tolerance for objectionable content or abusive behaviour.
+              </Text>
+            )}
+
             <TouchableOpacity
               style={styles.btn}
               onPress={mode === 'signup' ? handleSignUp : handleSignIn}
@@ -172,6 +178,7 @@ function makeStyles(c: any) {
   label: {fontSize: 12, color: TEXT2, marginBottom: 6, marginTop: 14},
   input: {borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, padding: 12, fontSize: 14, color: TEXT, backgroundColor: BG},
   error: {fontSize: 13, color: '#D4537E', marginTop: 12, textAlign: 'center'},
+  termsText: {fontSize: 11, color: TEXT3, lineHeight: 16, marginTop: 14, textAlign: 'center'},
   btn: {backgroundColor: GOLD, borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 20},
   btnText: {color: 'white', fontSize: 15, fontWeight: '600'},
   switchText: {fontSize: 13, color: TEXT2, textAlign: 'center', marginTop: 16},

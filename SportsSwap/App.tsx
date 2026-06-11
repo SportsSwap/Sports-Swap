@@ -25,6 +25,7 @@ import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, g
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AuthScreen from './AuthScreen';
 import CommunityApp from './CommunityApp';
+import Settings from './Settings';
 
 const {width} = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -105,6 +106,8 @@ export default function App() {
   const [newPhoto, setNewPhoto] = useState<string | null>(null);
   const [myListingsOpen, setMyListingsOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [blockedUsers, setBlockedUsers] = useState<any>({}); // {uid: name}
 
   // Listen for auth state
   useEffect(() => {
@@ -120,6 +123,7 @@ export default function App() {
           if (data.avatarColor) setAvatarColor(data.avatarColor);
           if (Array.isArray(data.savedIds)) setSaved(new Set(data.savedIds));
           setDark(!!data.darkMode);
+          if (data.blockedUsers) setBlockedUsers(data.blockedUsers);
         }
       }
       setAuthLoading(false);
@@ -168,6 +172,37 @@ export default function App() {
   function toggleDark() {
     const nv = !dark; setDark(nv);
     if (user) setDoc(doc(db, 'users', user.uid), {darkMode: nv}, {merge: true});
+  }
+
+  // Block / unblock — blocked people's posts, listings and chats are hidden for you
+  function blockUser(id: string, name: string) {
+    if (!user || id === user.uid) return;
+    const next = {...blockedUsers, [id]: name};
+    setBlockedUsers(next);
+    setDoc(doc(db, 'users', user.uid), {blockedUsers: next}, {merge: true});
+  }
+  function unblockUser(id: string) {
+    const next = {...blockedUsers};
+    delete next[id];
+    setBlockedUsers(next);
+    if (user) setDoc(doc(db, 'users', user.uid), {blockedUsers: next}, {merge: true});
+  }
+  const isBlocked = (id: string) => !!blockedUsers[id];
+
+  // Report content — saved to a 'reports' collection for review
+  function reportContent(info: any) {
+    Alert.alert('Report', 'Why are you reporting this?', [
+      {text: 'Cancel', style: 'cancel'},
+      ...['Spam or scam', 'Harassment or bullying', 'Inappropriate content', 'Other'].map(reason => ({
+        text: reason,
+        onPress: async () => {
+          await addDoc(collection(db, 'reports'), {
+            ...info, reason, reporterId: user.uid, reporterName: username, createdAt: serverTimestamp(),
+          });
+          Alert.alert('Report sent', "Thanks — we'll review this within 24 hours.");
+        },
+      })),
+    ]);
   }
 
   // Show loading spinner while checking auth
@@ -229,7 +264,11 @@ export default function App() {
     }),
   ];
 
+  // Hide conversations with people you've blocked
+  const visibleChats = inboxChats.filter(ch => !(ch.participants || []).some((p: string) => p !== user.uid && isBlocked(p)));
+
   const filtered = listings.filter(l => {
+    if (isBlocked(l.sellerId)) return false;
     if (activeSport !== 'all' && l.sport !== activeSport) return false;
     if (search && !l.title.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -373,6 +412,9 @@ export default function App() {
           onInbox={() => setTab('inbox')}
           onMenu={() => setMenuOpen(true)}
           colors={colors}
+          blocked={blockedUsers}
+          onBlock={blockUser}
+          onReport={reportContent}
         />
       ) : tab === 'inbox' ? (
         <SafeAreaView style={styles.safe}>
@@ -380,7 +422,7 @@ export default function App() {
             <Logo colors={colors} />
             <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}><Text style={styles.avatarText}>{username.charAt(0).toUpperCase()}</Text></TouchableOpacity>
           </View>
-          {inboxChats.length === 0 ? (
+          {visibleChats.length === 0 ? (
             <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
               <Text style={{fontSize: 34, marginBottom: 10}}>💬</Text>
               <Text style={{fontWeight: '500', color: TEXT, marginBottom: 4}}>No messages yet</Text>
@@ -388,7 +430,7 @@ export default function App() {
             </View>
           ) : (
             <ScrollView contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 90}}>
-              {inboxChats.map(chat => {
+              {visibleChats.map(chat => {
                 const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
                 return (
                   <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
@@ -590,9 +632,19 @@ export default function App() {
                   <Text style={styles.soldBtnText}>✓ Mark as sold</Text>
                 </TouchableOpacity>
               ) : (
-                <TouchableOpacity style={styles.cbtn} onPress={() => openChat(selectedListing)}>
-                  <Text style={styles.cbtnText}>Message seller</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity style={styles.cbtn} onPress={() => openChat(selectedListing)}>
+                    <Text style={styles.cbtnText}>Message seller</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{alignItems: 'center', paddingVertical: 14}}
+                    onPress={() => {
+                      const l = selectedListing;
+                      reportContent({type: 'listing', targetId: l.id, targetText: l.title, reportedId: l.sellerId, reportedName: l.seller});
+                    }}>
+                    <Text style={{fontSize: 13, color: TEXT3, fontWeight: '500'}}>Report this listing</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </ScrollView>
           </View>
@@ -661,7 +713,7 @@ export default function App() {
                 <Text style={styles.closeX}>✕</Text>
               </TouchableOpacity>
             </View>
-            {inboxChats.length === 0 ? (
+            {visibleChats.length === 0 ? (
               <View style={{alignItems: 'center', paddingVertical: 50}}>
                 <Text style={{fontSize: 34, marginBottom: 10}}>💬</Text>
                 <Text style={{fontWeight: '500', color: TEXT, marginBottom: 4}}>No messages yet</Text>
@@ -669,7 +721,7 @@ export default function App() {
               </View>
             ) : (
               <ScrollView>
-                {inboxChats.map(chat => {
+                {visibleChats.map(chat => {
                   const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
                   return (
                     <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
@@ -819,7 +871,7 @@ export default function App() {
             </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('inbox');}}>
               <Text style={styles.menuItemText}>Inbox</Text>
-              {inboxChats.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{inboxChats.length}</Text></View>)}
+              {visibleChats.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{visibleChats.length}</Text></View>)}
             </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('market'); setMyListingsOpen(true);}}>
               <Text style={styles.menuItemText}>My Listings</Text>
@@ -834,6 +886,9 @@ export default function App() {
               <Text style={styles.menuItemText}>Dark mode</Text>
               <View style={[styles.toggle, dark && styles.toggleOn]}><View style={[styles.toggleKnob, dark && styles.toggleKnobOn]} /></View>
             </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setSettingsOpen(true);}}>
+              <Text style={styles.menuItemText}>Settings</Text>
+            </TouchableOpacity>
             <View style={styles.menuDivider} />
             <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); signOut(auth);}}>
               <Text style={[styles.menuItemText, {color: '#D4537E'}]}>Log out</Text>
@@ -842,13 +897,27 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Settings */}
+      {settingsOpen && (
+        <Settings
+          colors={colors}
+          username={username}
+          email={email}
+          dark={dark}
+          toggleDark={toggleDark}
+          blockedUsers={Object.entries(blockedUsers).map(([id, name]) => ({id, name}))}
+          onUnblock={unblockUser}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
       {/* Bottom navigation */}
       <View style={styles.bottomNav}>
         {[{id: 'community', label: 'Community'}, {id: 'market', label: 'SportsSwap'}, {id: 'inbox', label: 'Inbox'}, {id: 'profile', label: 'Profile'}].map(t => (
           <TouchableOpacity key={t.id} style={styles.bnavBtn} onPress={() => setTab(t.id)}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <Text style={[styles.bnavText, tab === t.id && styles.bnavActive]}>{t.label}</Text>
-              {t.id === 'inbox' && inboxChats.length > 0 && <View style={styles.navDot} />}
+              {t.id === 'inbox' && visibleChats.length > 0 && <View style={styles.navDot} />}
             </View>
           </TouchableOpacity>
         ))}
