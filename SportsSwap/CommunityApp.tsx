@@ -110,6 +110,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const [createOpen, setCreateOpen] = useState(false);
   const [follows, setFollows] = useState<any[]>([]);
   const [sportFilter, setSportFilter] = useState('all');
+  const [feedSort, setFeedSort] = useState<'top' | 'new'>('top');
   const [filterOpen, setFilterOpen] = useState(false);
   const [viewUser, setViewUser] = useState<any>(null);
   const [eventGroup, setEventGroup] = useState<any>(null);
@@ -358,7 +359,27 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       );
     }
 
-    const feed = posts.filter(p => !p.groupId && (sportFilter === 'all' || p.sport === sportFilter));
+    // ----- Feed ranking (Instagram/Reddit style) -----
+    // Every post gets a score; the feed is sorted by it.
+    //  • Recency decays the score with a ~24h half-life, so a 6-month-old post
+    //    scores ~0 no matter who wrote it.
+    //  • Posts from people you follow get a 3x boost — they win while fresh,
+    //    but stale posts from followed people don't beat new content.
+    //  • Votes and comments add engagement points (also decayed).
+    //  • Posts in your main sport get a small 1.2x bump.
+    const followingIds = new Set(follows.filter(f => f.followerId === uid).map(f => f.followingId));
+    const nowSecs = Math.floor(Date.now() / 1000);
+    function feedScore(p: any) {
+      const ageHours = (nowSecs - (p.createdAt?.seconds || nowSecs)) / 3600;
+      const recency = Math.pow(0.5, ageHours / 24);
+      const engagement = 100 + (p.votes || 0) * 4 + (p.comments || []).length * 6;
+      const followBoost = followingIds.has(p.authorId) ? 3 : 1;
+      const sportBoost = p.sport === profile.sport ? 1.2 : 1;
+      return engagement * recency * followBoost * sportBoost;
+    }
+
+    let feed = posts.filter(p => !p.groupId && (sportFilter === 'all' || p.sport === sportFilter));
+    if (feedSort === 'top') feed = [...feed].sort((a, b) => feedScore(b) - feedScore(a));
 
     // Trending: most-voted public posts from the last 7 days
     const weekAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
@@ -409,7 +430,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
         {/* Feed + sport filter dropdown */}
         <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14}}>
-          <Text style={[styles.sectionLabel, {marginBottom: 0}]}>Feed</Text>
+          <View style={styles.sortToggle}>
+            <TouchableOpacity style={[styles.sortOpt, feedSort === 'top' && styles.sortOptActive]} onPress={() => setFeedSort('top')}>
+              <Text style={[styles.sortOptText, feedSort === 'top' && styles.sortOptTextActive]}>For you</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.sortOpt, feedSort === 'new' && styles.sortOptActive]} onPress={() => setFeedSort('new')}>
+              <Text style={[styles.sortOptText, feedSort === 'new' && styles.sortOptTextActive]}>Newest</Text>
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity style={styles.filterBtn} onPress={() => setFilterOpen(true)}>
             <Text style={styles.filterBtnText}>{sportFilter === 'all' ? 'All sports' : sportOf(sportFilter)?.label}  ▾</Text>
           </TouchableOpacity>
@@ -1097,5 +1125,10 @@ function makeStyles(c: any) {
   trendRank: {fontSize: 16, fontWeight: '800', color: GOLD, width: 22, textAlign: 'center'},
   trendText: {fontSize: 14, fontWeight: '600', color: TEXT},
   trendVotes: {fontSize: 13, fontWeight: '700', color: TEXT2},
+  sortToggle: {flexDirection: 'row', backgroundColor: BG2, borderRadius: 18, padding: 3, borderWidth: 0.5, borderColor: BORDER},
+  sortOpt: {paddingHorizontal: 14, paddingVertical: 6, borderRadius: 15},
+  sortOptActive: {backgroundColor: BG, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: {width: 0, height: 1}, elevation: 1},
+  sortOptText: {fontSize: 13, fontWeight: '500', color: TEXT2},
+  sortOptTextActive: {color: GOLD, fontWeight: '700'},
   });
 }
