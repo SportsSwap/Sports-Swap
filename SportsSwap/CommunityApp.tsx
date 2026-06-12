@@ -318,7 +318,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     if (p.kind === 'achievement') {
       return (
         <Btn style={[styles.medalBtn, mv === 1 && styles.medalBtnActive]} onPress={() => votePost(p, 1)} scaleTo={1.1}>
-          <Text style={[styles.medalText, mv === 1 && {color: GOLD_TEXT}]}>★ {p.votes || 0}</Text>
+          <Text style={[styles.medalText, mv === 1 && {color: GOLD_TEXT}]}>🏅 {p.votes || 0}</Text>
         </Btn>
       );
     }
@@ -334,11 +334,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   // ---------- POST CARD ----------
   function PostCard({p, onOpen, canPin}: any) {
     return (
-      <TouchableOpacity style={[styles.card, p.pinned && styles.cardPinned]} onPress={onOpen} activeOpacity={0.9}>
+      <TouchableOpacity style={[styles.card, p.kind === 'achievement' && styles.cardAchievement, p.kind === 'question' && styles.cardQuestion, p.pinned && styles.cardPinned]} onPress={onOpen} activeOpacity={0.9}>
         {p.pinned && <View style={styles.pinBadge}><Text style={styles.pinBadgeText}>PINNED</Text></View>}
         {!!p.repostFrom && <Text style={styles.repostLabel}>⟳ {p.authorName} reposted{p.repostFrom !== p.authorName ? ` from ${p.repostFrom}` : ''}</Text>}
         {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>ANNOUNCEMENT</Text></View>}
-        {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>★ ACHIEVEMENT</Text></View>}
+        {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>🏅 ACHIEVEMENT</Text></View>}
         {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>QUESTION</Text></View>}
         <View style={styles.cardHead}>
           <TouchableOpacity onPress={() => setViewUser({id: p.authorId, name: p.authorName, sport: p.sport})}>
@@ -637,8 +637,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           <View style={styles.topbar}><TouchableOpacity style={styles.backBtn} onPress={() => setThreadId(null)}><Text style={styles.backText}>← Back</Text></TouchableOpacity></View>
           <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 60}}>
             <View style={styles.pageCard}>
-              {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>⭐ Achievement</Text></View>}
-              {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>❓ Question</Text></View>}
+              {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>🏅 Achievement</Text></View>}
+              {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>Question</Text></View>}
               <View style={styles.cardHead}>
                 <Avatar name={p.authorName} size={40} photo={p.authorId === uid ? profile.photo : null} />
                 <View style={{flex: 1, marginLeft: 10}}><Text style={styles.author}>{p.authorName}</Text><Text style={styles.meta}>{timeAgo(p.createdAt)} · {sportOf(p.sport)?.label}</Text></View>
@@ -1248,6 +1248,8 @@ function makeStyles(c: any) {
   medalBtnActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
   medalText: {fontSize: 14, fontWeight: '700', color: TEXT},
   cardPinned: {borderColor: GOLD, borderWidth: 1},
+  cardAchievement: {borderColor: GOLD, borderWidth: 1},
+  cardQuestion: {borderColor: '#378ADD', borderWidth: 1},
   pinBadge: {backgroundColor: GOLD_LIGHT, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
   pinBadgeText: {fontSize: 11, fontWeight: '700', color: GOLD_DARK},
   eventCard: {backgroundColor: BG, borderWidth: 1, borderColor: GOLD, borderRadius: 12, padding: 14, marginBottom: 12},
