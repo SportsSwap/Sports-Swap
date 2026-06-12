@@ -131,6 +131,8 @@ export default function App() {
   const [rateTarget, setRateTarget] = useState<any>(null); // {id, name} of seller being rated
   const [rateStars, setRateStars] = useState(0);
   const [rateText, setRateText] = useState('');
+  const [usersMap, setUsersMap] = useState<any>({}); // {uid: {avatarEmoji, avatarColor, username}}
+  const [sportDropOpen, setSportDropOpen] = useState(false);
 
   // Listen for auth state
   useEffect(() => {
@@ -183,6 +185,17 @@ export default function App() {
     if (!user) return;
     const unsub = onSnapshot(collection(db, 'ratings'), snapshot => {
       setRatings(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
+    });
+    return () => unsub();
+  }, [user]);
+
+  // Load all users (for profile pics in the inbox)
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(collection(db, 'users'), snapshot => {
+      const m: any = {};
+      snapshot.docs.forEach(d => { m[d.id] = d.data(); });
+      setUsersMap(m);
     });
     return () => unsub();
   }, [user]);
@@ -586,11 +599,13 @@ export default function App() {
             <ScrollView contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 90}}>
               {visibleChats.map(chat => {
                 const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
+                const otherId = chat.sellerId === user.uid ? chat.buyerId : chat.sellerId;
+                const otherU = usersMap[otherId] || {};
                 const unread = isUnread(chat);
                 return (
                   <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
-                    <View style={[styles.convoAvatar, {backgroundColor: chat.listingBg || BG2}]}>
-                      <Text style={{fontSize: 20}}>{chat.listingEmoji || '🏆'}</Text>
+                    <View style={[styles.convoAvatar, {backgroundColor: otherU.avatarColor || '#FBF1D6'}]}>
+                      <Text style={{fontSize: 20}}>{otherU.avatarEmoji || (otherName ? otherName.charAt(0).toUpperCase() : '🏆')}</Text>
                     </View>
                     <View style={{flex: 1, minWidth: 0}}>
                       <Text style={[styles.convoName, unread && {fontWeight: '800'}]} numberOfLines={1}>{otherName}</Text>
@@ -706,7 +721,7 @@ export default function App() {
           <View style={styles.detModal}>
             <View style={styles.detHeader}>
               <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>{editingId ? 'Edit listing' : 'List your gear'}</Text>
-              <TouchableOpacity onPress={() => { setPostOpen(false); setEditingId(null); }}>
+              <TouchableOpacity onPress={() => { setPostOpen(false); setEditingId(null); setSportDropOpen(false); }}>
                 <Text style={styles.closeX}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -741,14 +756,23 @@ export default function App() {
               <Text style={styles.postLabel}>Price ($)</Text>
               <TextInput style={styles.postInput} placeholder="0" placeholderTextColor={TEXT3} keyboardType="numeric" value={newPrice} onChangeText={setNewPrice} />
               <Text style={styles.postLabel}>Sport</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 10}}>
-                {SPORTS.slice(1).map(s => (
-                  <TouchableOpacity key={s.id} onPress={() => setNewSport(s.id)}
-                    style={[styles.sportPill, newSport === s.id && styles.sportPillActive]}>
-                    <Text style={[styles.sportPillText, newSport === s.id && styles.sportPillTextActive]}>{s.emoji} {s.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+              <TouchableOpacity style={styles.dropdownBtn} onPress={() => setSportDropOpen(o => !o)}>
+                <Text style={styles.dropdownBtnText}>{SPORTS.find(s => s.id === newSport)?.label || 'Choose a sport'}</Text>
+                <Text style={styles.dropdownCaret}>{sportDropOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {sportDropOpen && (
+                <View style={styles.dropdownList}>
+                  <ScrollView style={{maxHeight: 220}} nestedScrollEnabled>
+                    {SPORTS.slice(1).map(s => (
+                      <TouchableOpacity key={s.id} onPress={() => { setNewSport(s.id); setSportDropOpen(false); }}
+                        style={[styles.dropdownItem, newSport === s.id && styles.dropdownItemActive]}>
+                        <Text style={[styles.dropdownItemText, newSport === s.id && styles.dropdownItemTextActive]}>{s.label}</Text>
+                        {newSport === s.id && <Text style={styles.dropdownCheck}>✓</Text>}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
               <Text style={styles.postLabel}>Condition</Text>
               <View style={{flexDirection: 'row', gap: 8, marginBottom: 10}}>
                 {['new', 'like', 'used'].map(c => (
@@ -932,10 +956,12 @@ export default function App() {
               <ScrollView>
                 {visibleChats.map(chat => {
                   const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
+                  const otherId = chat.sellerId === user.uid ? chat.buyerId : chat.sellerId;
+                  const otherU = usersMap[otherId] || {};
                   return (
                     <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
-                      <View style={[styles.convoAvatar, {backgroundColor: chat.listingBg || BG2}]}>
-                        <Text style={{fontSize: 20}}>{chat.listingEmoji || '🏆'}</Text>
+                      <View style={[styles.convoAvatar, {backgroundColor: otherU.avatarColor || '#FBF1D6'}]}>
+                        <Text style={{fontSize: 20}}>{otherU.avatarEmoji || (otherName ? otherName.charAt(0).toUpperCase() : '🏆')}</Text>
                       </View>
                       <View style={{flex: 1, minWidth: 0}}>
                         <Text style={styles.convoName} numberOfLines={1}>{otherName}</Text>
@@ -1272,6 +1298,15 @@ function makeStyles(c: any) {
   sendBtnText: {color: 'white', fontSize: 16},
   postLabel: {fontSize: 12, color: TEXT2, marginBottom: 4, marginTop: 12},
   postInput: {borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, padding: 10, fontSize: 14, color: TEXT, backgroundColor: BG},
+  dropdownBtn: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: BG, marginBottom: 10},
+  dropdownBtnText: {fontSize: 14, color: TEXT},
+  dropdownCaret: {fontSize: 10, color: TEXT2},
+  dropdownList: {borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, backgroundColor: BG, marginTop: -4, marginBottom: 10, overflow: 'hidden'},
+  dropdownItem: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 11, borderBottomWidth: 0.5, borderBottomColor: BORDER},
+  dropdownItemActive: {backgroundColor: GOLD_LIGHT},
+  dropdownItemText: {fontSize: 14, color: TEXT},
+  dropdownItemTextActive: {color: GOLD_TEXT, fontWeight: '600'},
+  dropdownCheck: {fontSize: 14, color: GOLD_TEXT, fontWeight: '700'},
   sportPill: {paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 0.5, borderColor: BORDER, backgroundColor: BG2, marginRight: 8},
   sportPillActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
   sportPillText: {fontSize: 12, color: TEXT2},
