@@ -1,8 +1,11 @@
 import React, {useState, useEffect, useMemo, useRef} from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Modal,
-  StyleSheet, Image, Alert, ActivityIndicator, SafeAreaView,
+  StyleSheet, Image, Alert, ActivityIndicator, SafeAreaView, Vibration,
 } from 'react-native';
+
+// Tiny tap feedback for likes/votes (no-op on the simulator — only real phones vibrate)
+const buzz = () => { try { Vibration.vibrate(10); } catch (e) {} };
 import {launchImageLibrary} from 'react-native-image-picker';
 import {db} from './firebase';
 import {
@@ -205,6 +208,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const removeFollowDoc = (id: string) => deleteDoc(doc(db, 'follows', id));
 
   async function votePost(p: any, dir: number) {
+    buzz();
     const cur = myVotes[p.id] || 0;
     let nv = 0, delta = 0;
     if (cur === dir) { nv = 0; delta = -dir; } else { nv = dir; delta = dir - cur; }
@@ -255,6 +259,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const savedPostIds: string[] = (users.find(u => u.id === uid)?.savedPostIds) || [];
   const isPostSaved = (id: string) => savedPostIds.includes(id);
   function toggleSavePost(p: any) {
+    buzz();
     const next = isPostSaved(p.id) ? savedPostIds.filter(x => x !== p.id) : [...savedPostIds, p.id];
     setDoc(doc(db, 'users', uid), {savedPostIds: next}, {merge: true});
   }

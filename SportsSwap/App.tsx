@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useCallback, useMemo} from 'react';
+import React, {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {lightColors, darkColors} from './theme';
 import Logo from './Logo';
 import Btn from './Btn';
@@ -19,6 +19,8 @@ import {
   Image,
   Linking,
   RefreshControl,
+  Animated,
+  Vibration,
 } from 'react-native';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { db, auth } from './firebase';
@@ -77,6 +79,13 @@ const SPORTS = [
 ];
 // Alphabetical by label (excludes 'All') — used for the listing sport dropdown
 const SPORTS_ABC = SPORTS.slice(1).sort((a, b) => a.label.localeCompare(b.label));
+
+const NAV_TABS = [
+  {id: 'community', label: 'Community'},
+  {id: 'market', label: 'SportsSwap'},
+  {id: 'inbox', label: 'Inbox'},
+  {id: 'profile', label: 'Profile'},
+];
 
 // Listings now come from Firebase in real time — no dummy data
 
@@ -154,6 +163,8 @@ export default function App() {
   const [sportDropOpen, setSportDropOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [confirm, setConfirm] = useState<any>(null);
+  const [navW, setNavW] = useState(0); // bottom nav width, for the sliding pill
+  const navAnim = useRef(new Animated.Value(0)).current;
 
   // Listen for auth state
   useEffect(() => {
@@ -242,6 +253,12 @@ export default function App() {
     });
     return () => unsub();
   }, [activeChat]);
+
+  // Slide the bottom-nav pill to whichever tab is active
+  useEffect(() => {
+    const idx = NAV_TABS.findIndex(t => t.id === tab);
+    if (idx >= 0) Animated.spring(navAnim, {toValue: idx, useNativeDriver: true, friction: 9, tension: 80}).start();
+  }, [tab]);
 
   // Theme (light/dark)
   const colors = dark ? darkColors : lightColors;
@@ -484,6 +501,7 @@ export default function App() {
   }
 
   function toggleSave(id: string) {
+    try { Vibration.vibrate(10); } catch (e) {}
     setSaved(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -1190,14 +1208,25 @@ export default function App() {
         />
       )}
 
-      {/* Bottom navigation */}
-      <View style={styles.bottomNav}>
-        {[{id: 'community', label: 'Community'}, {id: 'market', label: 'SportsSwap'}, {id: 'inbox', label: 'Inbox'}, {id: 'profile', label: 'Profile'}].map(t => (
-          <TouchableOpacity key={t.id} style={styles.bnavBtn} onPress={() => setTab(t.id)}>
+      {/* Bottom navigation — sliding dark-gold pill behind the active tab */}
+      <View style={styles.bottomNav} onLayout={e => setNavW(e.nativeEvent.layout.width)}>
+        {navW > 0 && (
+          <Animated.View
+            style={[styles.navPill, {
+              width: (navW - 20) / NAV_TABS.length,
+              transform: [{translateX: navAnim.interpolate({
+                inputRange: [0, NAV_TABS.length - 1],
+                outputRange: [0, (navW - 20) / NAV_TABS.length * (NAV_TABS.length - 1)],
+              })}],
+            }]}
+          />
+        )}
+        {NAV_TABS.map(t => (
+          <TouchableOpacity key={t.id} style={styles.bnavBtn} onPress={() => { try { Vibration.vibrate(5); } catch (e) {} setTab(t.id); }}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <Text style={[styles.bnavText, tab === t.id && styles.bnavActive]}>{t.label}</Text>
               {t.id === 'inbox' && unreadTotal > 0 && (
-                <View style={styles.navBadge}><Text style={styles.navBadgeText}>{unreadTotal > 9 ? '9+' : unreadTotal}</Text></View>
+                <View style={[styles.navBadge, tab === 'inbox' && {backgroundColor: '#fff'}]}><Text style={styles.navBadgeText}>{unreadTotal > 9 ? '9+' : unreadTotal}</Text></View>
               )}
             </View>
           </TouchableOpacity>
@@ -1218,10 +1247,11 @@ function makeStyles(c: any) {
   toggleOn: {backgroundColor: GOLD},
   toggleKnob: {width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff'},
   toggleKnobOn: {alignSelf: 'flex-end'},
-  bottomNav: {flexDirection: 'row', backgroundColor: BG, borderTopWidth: 0.5, borderTopColor: BORDER, paddingBottom: 28, paddingTop: 10},
-  bnavBtn: {flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 2},
-  bnavText: {fontSize: 13, color: TEXT2, fontWeight: '500'},
-  bnavActive: {color: GOLD, fontWeight: '700'},
+  bottomNav: {flexDirection: 'row', backgroundColor: BG, borderTopWidth: 0.5, borderTopColor: BORDER, paddingBottom: 26, paddingTop: 8, paddingHorizontal: 10},
+  navPill: {position: 'absolute', left: 10, top: 8, height: 38, borderRadius: 19, backgroundColor: c.GOLD_DARK},
+  bnavBtn: {flex: 1, alignItems: 'center', justifyContent: 'center', height: 38},
+  bnavText: {fontSize: 12.5, color: TEXT2, fontWeight: '500'},
+  bnavActive: {color: '#fff', fontWeight: '700'},
   navDot: {width: 7, height: 7, borderRadius: 4, backgroundColor: GOLD, marginLeft: 5},
   header: {flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: BG, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: BORDER},
   logo: {fontSize: 18, fontWeight: '700', color: GOLD},
