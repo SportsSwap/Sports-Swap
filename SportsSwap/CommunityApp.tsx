@@ -137,6 +137,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const [listView, setListView] = useState<string | null>(null);
   const [toast, setToast] = useState('');
   const [confirm, setConfirm] = useState<any>(null);
+  const [chooser, setChooser] = useState<any>(null); // {target, groupId, sport} for the share sheet
 
   // Live data from Firebase
   useEffect(() => {
@@ -303,12 +304,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
   // Choose what kind of thing to share
   function openComposerChooser(target: string, groupId?: string, sport?: string) {
-    Alert.alert('Share something', 'What would you like to share?', [
-      {text: '📣 Create a post', onPress: () => setComposer({target, groupId, sport, kind: 'post'})},
-      {text: '❓ Ask a question', onPress: () => setComposer({target, groupId, sport, kind: 'question'})},
-      {text: '🏅 Share an achievement', onPress: () => setComposer({target, groupId, sport, kind: 'achievement'})},
-      {text: 'Cancel', style: 'cancel'},
-    ]);
+    setChooser({target, groupId, sport});
   }
 
   // Reaction control: medals for achievements, up/down votes for everything else
@@ -682,7 +678,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const [busy, setBusy] = useState(false);
     const kind = composer.kind || 'post';
     const kindTitle = kind === 'question' ? 'Ask a question' : kind === 'achievement' ? 'Share an achievement' : (composer.target === 'group' ? 'Post to group' : 'Create a post');
-    const kindPh = kind === 'question' ? "What's your question?" : kind === 'achievement' ? 'Share your achievement! 🏅' : 'Share news, a tip, a result…';
+    const kindPh = kind === 'question' ? "What's your question?" : kind === 'achievement' ? 'Share your achievement!' : 'Share news, a tip, a result…';
     function pick() {
       launchImageLibrary({mediaType: 'photo', maxWidth: 1000, maxHeight: 1000, quality: 0.7, includeBase64: true}, (res: any) => {
         const a = res.assets?.[0]; if (a?.base64) setPhoto(`data:${a.type || 'image/jpeg'};base64,${a.base64}`);
@@ -1117,6 +1113,29 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         </Modal>
       )}
 
+      {/* Share chooser — clean in-app sheet */}
+      {chooser && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setChooser(null)}>
+          <View style={styles.overlay}><View style={styles.sheet}>
+            <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Share something</Text><TouchableOpacity onPress={() => setChooser(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+            {[
+              {kind: 'post', label: 'Create a post', sub: 'Share news, a tip or a result'},
+              {kind: 'question', label: 'Ask a question', sub: 'Get help from the community'},
+              {kind: 'achievement', label: 'Share an achievement', sub: 'Celebrate a win or milestone'},
+            ].map(opt => (
+              <TouchableOpacity key={opt.kind} style={styles.chooseRow}
+                onPress={() => { const ch = chooser; setChooser(null); setComposer({target: ch.target, groupId: ch.groupId, sport: ch.sport, kind: opt.kind}); }}>
+                <View style={{flex: 1}}>
+                  <Text style={styles.chooseLabel}>{opt.label}</Text>
+                  <Text style={styles.chooseSub}>{opt.sub}</Text>
+                </View>
+                <Text style={styles.chooseChevron}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </View></View>
+        </Modal>
+      )}
+
       <Toast message={toast} onHide={() => setToast('')} colors={c} />
       <ConfirmModal data={confirm} onClose={() => setConfirm(null)} colors={c} />
     </SafeAreaView>
@@ -1236,6 +1255,10 @@ function makeStyles(c: any) {
   pTabText: {fontSize: 14, fontWeight: '600', color: TEXT2},
   filterBtn: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7},
   filterBtnText: {fontSize: 13, fontWeight: '600', color: TEXT},
+  chooseRow: {flexDirection: 'row', alignItems: 'center', backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, marginTop: 10},
+  chooseLabel: {fontSize: 15, fontWeight: '600', color: TEXT},
+  chooseSub: {fontSize: 12, color: TEXT2, marginTop: 2},
+  chooseChevron: {fontSize: 22, color: TEXT3, marginLeft: 10},
   filterOption: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderTopWidth: 0.5, borderTopColor: BORDER},
   filterOptionText: {fontSize: 15, color: TEXT},
   resultRow: {flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, padding: 10, marginBottom: 8},
