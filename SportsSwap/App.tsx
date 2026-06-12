@@ -282,25 +282,27 @@ export default function App() {
     setRateText(existing?.text || '');
     setRateTarget({id: sellerId, name: sellerName});
   }
-  async function submitRating() {
+  function submitRating() {
     if (!rateTarget || rateStars < 1) {
-      Alert.alert('Pick a rating', 'Tap a star to choose your rating.');
+      setToast('Tap a star to choose your rating');
       return;
     }
-    await setDoc(doc(db, 'ratings', `${rateTarget.id}_${user.uid}`), {
-      sellerId: rateTarget.id, sellerName: rateTarget.name,
+    const target = rateTarget;
+    // Close immediately and write in the background — never block the app on the network
+    setRateTarget(null);
+    setToast('Thanks — your rating helps other buyers');
+    setDoc(doc(db, 'ratings', `${target.id}_${user.uid}`), {
+      sellerId: target.id, sellerName: target.name,
       raterId: user.uid, raterName: username,
       stars: rateStars, text: rateText.trim(),
       createdAt: serverTimestamp(),
-    });
+    }).catch(() => setToast("Couldn't save rating — check your connection"));
     // Let the seller know
-    await addDoc(collection(db, 'notifs'), {
-      toId: rateTarget.id, kind: 'rating', read: false,
+    addDoc(collection(db, 'notifs'), {
+      toId: target.id, kind: 'rating', read: false,
       text: `${username} rated you ${rateStars} star${rateStars === 1 ? '' : 's'}${rateText.trim() ? `: "${rateText.trim().slice(0, 60)}"` : ''}`,
       createdAt: serverTimestamp(),
-    });
-    setRateTarget(null);
-    Alert.alert('Thanks!', 'Your rating helps other buyers.');
+    }).catch(() => {});
   }
 
   // Report content — saved to a 'reports' collection for review
@@ -348,14 +350,15 @@ export default function App() {
       photo: newPhotos[0] || null,
       photos: newPhotos,
     };
-    if (editingId) {
-      await updateDoc(doc(db, 'listings', editingId), data);
-    } else {
-      await addDoc(collection(db, 'listings'), {...data, createdAt: serverTimestamp()});
-    }
+    // Close immediately and write in the background — never block the app on the network
     const wasEdit = !!editingId;
+    const editId = editingId;
     setNewTitle(''); setNewPrice(''); setNewLoc(''); setNewPhotos([]); setEditingId(null); setPostOpen(false); setSportDropOpen(false);
     setToast(wasEdit ? 'Changes saved' : 'Listing posted');
+    const write = wasEdit
+      ? updateDoc(doc(db, 'listings', editId!), data)
+      : addDoc(collection(db, 'listings'), {...data, createdAt: serverTimestamp()});
+    write.catch(() => setToast("Couldn't save — check your connection"));
   }
 
   // Open the post form pre-filled to edit an existing listing
@@ -368,7 +371,9 @@ export default function App() {
     setNewPhotos(item.photos || (item.photo ? [item.photo] : []));
     setEditingId(item.id);
     setSelectedListing(null);
-    setPostOpen(true);
+    // Wait for the detail modal to finish closing before opening the edit form —
+    // opening a second modal mid-dismiss freezes touches on iOS.
+    setTimeout(() => setPostOpen(true), 350);
   }
 
   function markAsSold(listing: any) {
@@ -413,9 +418,10 @@ export default function App() {
   });
 
   // Start (or reopen) a real conversation with the seller of a listing
-  async function openChat(listing: any) {
+  function openChat(listing: any) {
     const chatId = `${listing.id}_${user.uid}`;
-    await setDoc(doc(db, 'chats', chatId), {
+    // Write in the background — don't block the UI on the network
+    setDoc(doc(db, 'chats', chatId), {
       listingId: listing.id,
       listingTitle: listing.title,
       listingPrice: listing.price,
@@ -428,15 +434,19 @@ export default function App() {
       participants: [listing.sellerId, user.uid],
       updatedAt: serverTimestamp(),
     }, {merge: true});
-    setActiveChat({
-      id: chatId,
-      title: listing.title,
-      price: listing.price,
-      otherName: listing.seller,
-      otherId: listing.sellerId,
-    });
-    setChatOpen(true);
     setSelectedListing(null);
+    // Wait for the detail modal to finish closing before opening the chat —
+    // opening a second modal mid-dismiss freezes touches on iOS.
+    setTimeout(() => {
+      setActiveChat({
+        id: chatId,
+        title: listing.title,
+        price: listing.price,
+        otherName: listing.seller,
+        otherId: listing.sellerId,
+      });
+      setChatOpen(true);
+    }, 350);
     markChatRead(chatId);
   }
 

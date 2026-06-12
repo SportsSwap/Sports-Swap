@@ -684,15 +684,16 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         const a = res.assets?.[0]; if (a?.base64) setPhoto(`data:${a.type || 'image/jpeg'};base64,${a.base64}`);
       });
     }
-    async function post() {
+    function post() {
       if (!text.trim() && !photo) { setToast('Write a message or add a photo'); return; }
       if (!clean(text)) return;
-      setBusy(true);
-      await addDoc(collection(db, 'cposts'), {
+      // Close immediately and write in the background — never block the app on the network
+      setComposer(null);
+      setToast('Posted');
+      addDoc(collection(db, 'cposts'), {
         authorId: uid, authorName: username, sport, groupId: composer.target === 'group' ? composer.groupId : null,
         announcement: false, kind, text: text.trim(), photo, votes: 0, comments: [], createdAt: serverTimestamp(),
-      });
-      setBusy(false); setComposer(null); setToast('Posted');
+      }).catch(() => setToast("Couldn't post — check your connection"));
     }
     return (
       <Modal visible animationType="slide" transparent onRequestClose={() => setComposer(null)}>
@@ -720,17 +721,17 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const [code, setCode] = useState('');
     const [desc, setDesc] = useState('');
     const [busy, setBusy] = useState(false);
-    async function create() {
-      if (!name.trim()) { Alert.alert('Name needed', 'Give your group a name.'); return; }
-      if (priv && !code.trim()) { Alert.alert('Code needed', 'Set a join code for your private group.'); return; }
-      setBusy(true);
-      await addDoc(collection(db, 'groups'), {
+    function create() {
+      if (!name.trim()) { setToast('Give your group a name'); return; }
+      if (priv && !code.trim()) { setToast('Set a join code for your private group'); return; }
+      // Close immediately and write in the background — never block the app on the network
+      setCreateOpen(false);
+      setToast(priv ? 'Group created — join code: ' + code.trim().toUpperCase() : 'Group created');
+      addDoc(collection(db, 'groups'), {
         name: name.trim(), sport, creatorId: uid, creatorName: username,
         roster: [{id: uid, name: username}], training: '', priv, code: code.trim().toUpperCase(),
         desc: desc.trim() || 'A new community group.', photo: null, createdAt: serverTimestamp(),
-      });
-      setBusy(false); setCreateOpen(false);
-      if (priv) Alert.alert('Private group created', 'Your join code is: ' + code.trim().toUpperCase());
+      }).catch(() => setToast("Couldn't create group — check your connection"));
     }
     return (
       <Modal visible animationType="slide" transparent onRequestClose={() => setCreateOpen(false)}>
@@ -763,17 +764,17 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const [date, setDate] = useState('');
     const [loc, setLoc] = useState('');
     const [busy, setBusy] = useState(false);
-    async function create() {
-      if (!title.trim()) { Alert.alert('Name needed', 'Give your event a name.'); return; }
+    function create() {
+      if (!title.trim()) { setToast('Give your event a name'); return; }
       if (!clean(title)) return;
-      setBusy(true);
-      await addDoc(collection(db, 'cposts'), {
+      // Close immediately and write in the background — never block the app on the network
+      setEventGroup(null);
+      setToast('Event posted');
+      addDoc(collection(db, 'cposts'), {
         authorId: uid, authorName: username, sport: g.sport, groupId: g.id, kind: 'event',
         eventTitle: title.trim(), eventDate: date.trim(), eventLocation: loc.trim(),
         attendees: [{id: uid, name: username}], announcement: false, text: '', photo: null, votes: 0, comments: [], createdAt: serverTimestamp(),
-      });
-      setBusy(false); setEventGroup(null);
-      Alert.alert('Event posted', `All ${memberCount(g)} members of ${g.name} have been notified.`);
+      }).catch(() => setToast("Couldn't post event — check your connection"));
     }
     return (
       <Modal visible transparent animationType="slide" onRequestClose={() => setEventGroup(null)}>
@@ -989,7 +990,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               )}
             </View>
             <Text style={[styles.sectionLabel, {marginTop: 16}]}>{isMe ? 'Your posts' : 'Posts'}</Text>
-            {theirPosts.length ? theirPosts.map(p => <PostCard key={p.id} p={p} onOpen={() => { setViewUser(null); setThreadId(p.id); }} />) : <Text style={styles.noResult}>No posts yet.</Text>}
+            {theirPosts.length ? theirPosts.map(p => <PostCard key={p.id} p={p} onOpen={() => { setViewUser(null); setTimeout(() => setThreadId(p.id), 350); }} />) : <Text style={styles.noResult}>No posts yet.</Text>}
           </ScrollView>
         </View>
       </Modal>
@@ -1060,7 +1061,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
                 : follows.filter(f => f.followerId === uid).map(f => ({docId: f.id, id: f.followingId, name: f.followingName}))
               ).map(person => (
                 <View key={person.docId} style={styles.shareRow}>
-                  <TouchableOpacity style={{flexDirection: 'row', alignItems: 'center', flex: 1}} onPress={() => { setListView(null); setViewUser({id: person.id, name: person.name, sport: ''}); }}>
+                  <TouchableOpacity style={{flexDirection: 'row', alignItems: 'center', flex: 1}} onPress={() => { setListView(null); setTimeout(() => setViewUser({id: person.id, name: person.name, sport: ''}), 350); }}>
                     <Avatar name={person.name} size={38} photo={person.id === uid ? profile.photo : null} />
                     <Text style={[styles.shareRowText, {marginLeft: 10}]}>{person.name}</Text>
                   </TouchableOpacity>
@@ -1119,7 +1120,12 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               {kind: 'achievement', label: 'Share an achievement', sub: 'Celebrate a win or milestone'},
             ].map(opt => (
               <TouchableOpacity key={opt.kind} style={styles.chooseRow}
-                onPress={() => { const ch = chooser; setChooser(null); setComposer({target: ch.target, groupId: ch.groupId, sport: ch.sport, kind: opt.kind}); }}>
+                onPress={() => {
+                  const ch = chooser; setChooser(null);
+                  // Wait for this sheet to finish closing before opening the composer —
+                  // opening a second modal mid-dismiss freezes touches on iOS.
+                  setTimeout(() => setComposer({target: ch.target, groupId: ch.groupId, sport: ch.sport, kind: opt.kind}), 350);
+                }}>
                 <View style={{flex: 1}}>
                   <Text style={styles.chooseLabel}>{opt.label}</Text>
                   <Text style={styles.chooseSub}>{opt.sub}</Text>
