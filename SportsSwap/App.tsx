@@ -26,6 +26,7 @@ import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, g
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AuthScreen from './AuthScreen';
 import CommunityApp from './CommunityApp';
+import {Toast, ConfirmModal} from './Feedback';
 import Settings from './Settings';
 
 const {width} = Dimensions.get('window');
@@ -57,7 +58,25 @@ const SPORTS = [
   {id: 'gym', label: 'Gym', emoji: '🏋️', bg: '#EEEDFE'},
   {id: 'fitness', label: 'Fitness gear', emoji: '🏃', bg: '#FCEBEB'},
   {id: 'martial', label: 'Martial arts', emoji: '🥋', bg: '#FCEBEB'},
+  {id: 'badminton', label: 'Badminton', emoji: '🏸', bg: '#EAF3DE'},
+  {id: 'boxing', label: 'Boxing', emoji: '🥊', bg: '#FAECE7'},
+  {id: 'climbing', label: 'Rock climbing', emoji: '🧗', bg: '#FAEEDA'},
+  {id: 'dance', label: 'Dance', emoji: '🩰', bg: '#FCEBEB'},
+  {id: 'diving', label: 'Diving', emoji: '🤿', bg: '#E6F1FB'},
+  {id: 'equestrian', label: 'Horse riding', emoji: '🏇', bg: '#FAEEDA'},
+  {id: 'lacrosse', label: 'Lacrosse', emoji: '🥍', bg: '#EAF3DE'},
+  {id: 'rowing', label: 'Rowing', emoji: '🚣', bg: '#E6F1FB'},
+  {id: 'sailing', label: 'Sailing', emoji: '⛵', bg: '#E6F1FB'},
+  {id: 'skateboarding', label: 'Skateboarding', emoji: '🛹', bg: '#FAECE7'},
+  {id: 'softball', label: 'Softball', emoji: '🥎', bg: '#FAEEDA'},
+  {id: 'squash', label: 'Squash', emoji: '🎾', bg: '#EAF3DE'},
+  {id: 'tabletennis', label: 'Table tennis', emoji: '🏓', bg: '#EAF3DE'},
+  {id: 'triathlon', label: 'Triathlon', emoji: '🏊', bg: '#FAECE7'},
+  {id: 'waterpolo', label: 'Water polo', emoji: '🤽', bg: '#E6F1FB'},
+  {id: 'wrestling', label: 'Wrestling', emoji: '🤼', bg: '#FCEBEB'},
 ];
+// Alphabetical by label (excludes 'All') — used for the listing sport dropdown
+const SPORTS_ABC = SPORTS.slice(1).sort((a, b) => a.label.localeCompare(b.label));
 
 // Listings now come from Firebase in real time — no dummy data
 
@@ -133,6 +152,8 @@ export default function App() {
   const [rateText, setRateText] = useState('');
   const [usersMap, setUsersMap] = useState<any>({}); // {uid: {avatarEmoji, avatarColor, username}}
   const [sportDropOpen, setSportDropOpen] = useState(false);
+  const [toast, setToast] = useState('');
+  const [confirm, setConfirm] = useState<any>(null);
 
   // Listen for auth state
   useEffect(() => {
@@ -332,7 +353,9 @@ export default function App() {
     } else {
       await addDoc(collection(db, 'listings'), {...data, createdAt: serverTimestamp()});
     }
-    setNewTitle(''); setNewPrice(''); setNewLoc(''); setNewPhotos([]); setEditingId(null); setPostOpen(false);
+    const wasEdit = !!editingId;
+    setNewTitle(''); setNewPrice(''); setNewLoc(''); setNewPhotos([]); setEditingId(null); setPostOpen(false); setSportDropOpen(false);
+    setToast(wasEdit ? 'Changes saved' : 'Listing posted');
   }
 
   // Open the post form pre-filled to edit an existing listing
@@ -349,21 +372,17 @@ export default function App() {
   }
 
   function markAsSold(listing: any) {
-    Alert.alert(
-      'Mark as sold?',
-      `This will remove "${listing.title}" from the marketplace for everyone.`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {
-          text: 'Mark as sold',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteDoc(doc(db, 'listings', listing.id));
-            setSelectedListing(null);
-          },
-        },
-      ],
-    );
+    setConfirm({
+      title: 'Mark as sold?',
+      message: `This will remove "${listing.title}" from the marketplace for everyone.`,
+      confirmText: 'Mark as sold',
+      destructive: true,
+      onConfirm: async () => {
+        await deleteDoc(doc(db, 'listings', listing.id));
+        setSelectedListing(null);
+        setToast('Listing removed');
+      },
+    });
   }
 
   const sortedSports = [
@@ -763,7 +782,7 @@ export default function App() {
               {sportDropOpen && (
                 <View style={styles.dropdownList}>
                   <ScrollView style={{maxHeight: 220}} nestedScrollEnabled>
-                    {SPORTS.slice(1).map(s => (
+                    {SPORTS_ABC.map(s => (
                       <TouchableOpacity key={s.id} onPress={() => { setNewSport(s.id); setSportDropOpen(false); }}
                         style={[styles.dropdownItem, newSport === s.id && styles.dropdownItemActive]}>
                         <Text style={[styles.dropdownItemText, newSport === s.id && styles.dropdownItemTextActive]}>{s.label}</Text>
@@ -1197,6 +1216,9 @@ export default function App() {
           </TouchableOpacity>
         ))}
       </View>
+
+      <Toast message={toast} onHide={() => setToast('')} colors={colors} />
+      <ConfirmModal data={confirm} onClose={() => setConfirm(null)} colors={colors} />
     </View>
   );
 }

@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useMemo} from 'react';
+import React, {useState, useEffect, useMemo, useRef} from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Modal,
   StyleSheet, Image, Alert, ActivityIndicator, SafeAreaView,
@@ -12,6 +12,7 @@ import {
 import {lightColors} from './theme';
 import Logo from './Logo';
 import Btn from './Btn';
+import {Toast, ConfirmModal} from './Feedback';
 
 const SPORTS = [
   {id: 'football', label: 'Football', bg: '#EAF3DE'},
@@ -35,7 +36,25 @@ const SPORTS = [
   {id: 'skiing', label: 'Snow sports', bg: '#E6F1FB'},
   {id: 'gym', label: 'Gym', bg: '#EEEDFE'},
   {id: 'martial', label: 'Martial arts', bg: '#FCEBEB'},
+  {id: 'badminton', label: 'Badminton', bg: '#EAF3DE'},
+  {id: 'boxing', label: 'Boxing', bg: '#FAECE7'},
+  {id: 'climbing', label: 'Rock climbing', bg: '#FAEEDA'},
+  {id: 'dance', label: 'Dance', bg: '#FCEBEB'},
+  {id: 'diving', label: 'Diving', bg: '#E6F1FB'},
+  {id: 'equestrian', label: 'Horse riding', bg: '#FAEEDA'},
+  {id: 'lacrosse', label: 'Lacrosse', bg: '#EAF3DE'},
+  {id: 'rowing', label: 'Rowing', bg: '#E6F1FB'},
+  {id: 'sailing', label: 'Sailing', bg: '#E6F1FB'},
+  {id: 'skateboarding', label: 'Skateboarding', bg: '#FAECE7'},
+  {id: 'softball', label: 'Softball', bg: '#FAEEDA'},
+  {id: 'squash', label: 'Squash', bg: '#EAF3DE'},
+  {id: 'tabletennis', label: 'Table tennis', bg: '#EAF3DE'},
+  {id: 'triathlon', label: 'Triathlon', bg: '#FAECE7'},
+  {id: 'waterpolo', label: 'Water polo', bg: '#E6F1FB'},
+  {id: 'wrestling', label: 'Wrestling', bg: '#FCEBEB'},
 ];
+// Alphabetical by label — used for every sport dropdown
+const SPORTS_ABC = [...SPORTS].sort((a, b) => a.label.localeCompare(b.label));
 const sportOf = (id: string) => SPORTS.find(s => s.id === id);
 
 // Relative time: <1h → minutes, <24h → hours, ≤7d → days, older → the date
@@ -116,6 +135,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const [eventGroup, setEventGroup] = useState<any>(null);
   const [sharePost, setSharePost] = useState<any>(null);
   const [listView, setListView] = useState<string | null>(null);
+  const [toast, setToast] = useState('');
+  const [confirm, setConfirm] = useState<any>(null);
 
   // Live data from Firebase
   useEffect(() => {
@@ -134,6 +155,20 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     });
     return () => { u1(); u2(); u3(); u4(); };
   }, []);
+
+  // Hydrate my saved sports/bio/photo from my user doc (once)
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    const me = users.find(u => u.id === uid);
+    if (!me) return;
+    hydratedRef.current = true;
+    setProfile((prev: any) => ({
+      ...prev,
+      sports: me.sports && me.sports.length ? me.sports : (me.mainSport ? [me.mainSport] : prev.sports || []),
+      sport: me.mainSport || (me.sports && me.sports[0]) || prev.sport,
+    }));
+  }, [users, uid]);
 
   // Hide content from people you've blocked
   const posts = allPosts.filter(p => !blocked[p.authorId]);
@@ -201,10 +236,13 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   // Delete your own post / comment
   function deletePost(p: any) {
     if (p.authorId !== uid) return;
-    Alert.alert('Delete', 'Delete this permanently? This cannot be undone.', [
-      {text: 'Cancel', style: 'cancel'},
-      {text: 'Delete', style: 'destructive', onPress: async () => { await deleteDoc(doc(db, 'cposts', p.id)); setThreadId(null); }},
-    ]);
+    setConfirm({
+      title: 'Delete post?',
+      message: 'This will permanently delete your post. This cannot be undone.',
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => { await deleteDoc(doc(db, 'cposts', p.id)); setThreadId(null); setToast('Post deleted'); },
+    });
   }
   async function deleteComment(p: any, c: any) {
     if (c.authorId !== uid) return;
@@ -374,7 +412,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       const recency = Math.pow(0.5, ageHours / 24);
       const engagement = 100 + (p.votes || 0) * 4 + (p.comments || []).length * 6;
       const followBoost = followingIds.has(p.authorId) ? 3 : 1;
-      const sportBoost = p.sport === profile.sport ? 1.2 : 1;
+      const mySports = profile.sports && profile.sports.length ? profile.sports : [profile.sport];
+      const sportBoost = mySports.includes(p.sport) ? 1.2 : 1;
       return engagement * recency * followBoost * sportBoost;
     }
 
@@ -650,14 +689,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       });
     }
     async function post() {
-      if (!text.trim() && !photo) { Alert.alert('Add something', 'Write a message or add a photo.'); return; }
+      if (!text.trim() && !photo) { setToast('Write a message or add a photo'); return; }
       if (!clean(text)) return;
       setBusy(true);
       await addDoc(collection(db, 'cposts'), {
         authorId: uid, authorName: username, sport, groupId: composer.target === 'group' ? composer.groupId : null,
         announcement: false, kind, text: text.trim(), photo, votes: 0, comments: [], createdAt: serverTimestamp(),
       });
-      setBusy(false); setComposer(null);
+      setBusy(false); setComposer(null); setToast('Posted');
     }
     return (
       <Modal visible animationType="slide" transparent onRequestClose={() => setComposer(null)}>
@@ -666,7 +705,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           <ScrollView>
             <Text style={styles.label}>Sport</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 8}}>
-              {SPORTS.map(s => <TouchableOpacity key={s.id} onPress={() => setSport(s.id)} style={[styles.pill, sport === s.id && styles.pillActive]}><Text style={[styles.pillText, sport === s.id && {color: GOLD_TEXT}]}>{s.label}</Text></TouchableOpacity>)}
+              {SPORTS_ABC.map(s => <TouchableOpacity key={s.id} onPress={() => setSport(s.id)} style={[styles.pill, sport === s.id && styles.pillActive]}><Text style={[styles.pillText, sport === s.id && {color: GOLD_TEXT}]}>{s.label}</Text></TouchableOpacity>)}
             </ScrollView>
             <Text style={styles.label}>Photo (optional)</Text>
             <TouchableOpacity style={styles.photoDrop} onPress={pick}>{photo ? <Image source={{uri: photo}} style={{width: '100%', height: '100%', borderRadius: 8}} /> : <Text style={{color: TEXT2}}>📷  Add a photo</Text>}</TouchableOpacity>
@@ -708,7 +747,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             <TextInput style={styles.input} placeholder="e.g. Sydney Sunday Runners" placeholderTextColor={TEXT3} value={name} onChangeText={setName} />
             <Text style={styles.label}>Sport</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 8}}>
-              {SPORTS.map(s => <TouchableOpacity key={s.id} onPress={() => setSport(s.id)} style={[styles.pill, sport === s.id && styles.pillActive]}><Text style={[styles.pillText, sport === s.id && {color: GOLD_TEXT}]}>{s.label}</Text></TouchableOpacity>)}
+              {SPORTS_ABC.map(s => <TouchableOpacity key={s.id} onPress={() => setSport(s.id)} style={[styles.pill, sport === s.id && styles.pillActive]}><Text style={[styles.pillText, sport === s.id && {color: GOLD_TEXT}]}>{s.label}</Text></TouchableOpacity>)}
             </ScrollView>
             <Text style={styles.label}>Privacy</Text>
             <View style={{flexDirection: 'row', gap: 8, marginBottom: 8}}>
@@ -768,7 +807,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const myPosts = posts.filter(p => p.authorId === uid && !p.groupId && !p.announcement);
     const replies = posts.filter(p => (p.comments || []).some((c: any) => c.authorId === uid));
     const joined = groups.filter(g => isJoined(g));
-    const sp = sportOf(profile.sport);
+    const mySports = profile.sports && profile.sports.length ? profile.sports : (profile.sport ? [profile.sport] : []);
     return (
       <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 90}}>
         <View style={styles.pageCard}>
@@ -781,7 +820,16 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             </View>
           </View>
           <Text style={[styles.groupTitle, {marginTop: 12}]}>{username}</Text>
-          <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 2}}><View style={[styles.sportDot, {backgroundColor: sp?.bg || '#ccc'}]} /><Text style={styles.meta}>  {sp?.label || 'All sports'}</Text></View>
+          {mySports.length ? (
+            <View style={[styles.chipWrap, {marginTop: 6, marginBottom: 0}]}>
+              {mySports.map((id: string) => {
+                const s = sportOf(id);
+                return <View key={id} style={styles.sportChip}><Text style={styles.sportChipText}>{s?.label || id}</Text></View>;
+              })}
+            </View>
+          ) : (
+            <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 2}}><Text style={styles.meta}>No sports yet — tap Edit profile</Text></View>
+          )}
           <Text style={[styles.body, {marginTop: 8}]}>{profile.bio || 'Add a bio to tell people about yourself and your sport.'}</Text>
           <View style={{flexDirection: 'row', gap: 10, marginTop: 14}}>
             <TouchableOpacity style={[styles.smallBtn, styles.smallBtnAlt, {flex: 1}]} onPress={() => setEditOpen(true)}><Text style={styles.smallBtnText}>Edit profile</Text></TouchableOpacity>
@@ -814,28 +862,85 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     );
   }
 
+  // How many people are part of a sport, and how many of them you follow
+  const followingIds = new Set(follows.filter(f => f.followerId === uid).map(f => f.followingId));
+  const sportsOfUser = (u: any) => (u.sports && u.sports.length ? u.sports : [u.mainSport || u.sport].filter(Boolean));
+  function sportCounts(sportId: string) {
+    let members = 0, mutuals = 0;
+    users.forEach(u => {
+      if (sportsOfUser(u).includes(sportId)) {
+        members++;
+        if (u.id !== uid && followingIds.has(u.id)) mutuals++;
+      }
+    });
+    return {members, mutuals};
+  }
+
   function EditProfile() {
-    const [sport, setSport] = useState(profile.sport);
+    const [sports, setSports] = useState<string[]>(
+      profile.sports && profile.sports.length ? profile.sports : (profile.sport ? [profile.sport] : []),
+    );
     const [bio, setBio] = useState(profile.bio);
     const [photo, setPhoto] = useState(profile.photo);
+    const [dropOpen, setDropOpen] = useState(false);
+    const toggleSport = (id: string) => setSports(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     function pick() {
       launchImageLibrary({mediaType: 'photo', maxWidth: 500, maxHeight: 500, quality: 0.8, includeBase64: true}, (res: any) => {
         const a = res.assets?.[0]; if (a?.base64) setPhoto(`data:${a.type || 'image/jpeg'};base64,${a.base64}`);
       });
     }
+    function save() {
+      const sport = sports[0] || '';
+      setProfile({sport, sports, bio: bio.trim(), photo});
+      setDoc(doc(db, 'users', uid), {sports, mainSport: sport || null}, {merge: true});
+      setEditOpen(false);
+      setToast('Profile saved');
+    }
     return (
       <Modal visible animationType="slide" transparent onRequestClose={() => setEditOpen(false)}>
         <View style={styles.overlay}><View style={styles.sheet}>
           <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Edit profile</Text><TouchableOpacity onPress={() => setEditOpen(false)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
-          <ScrollView>
+          <ScrollView keyboardShouldPersistTaps="handled">
             <TouchableOpacity style={{alignSelf: 'center', marginBottom: 8}} onPress={pick}><Avatar name={username} size={84} photo={photo} /><Text style={{textAlign: 'center', color: GOLD, fontSize: 12, marginTop: 4}}>Change photo</Text></TouchableOpacity>
-            <Text style={styles.label}>Main sport</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 8}}>
-              {SPORTS.map(s => <TouchableOpacity key={s.id} onPress={() => setSport(s.id)} style={[styles.pill, sport === s.id && styles.pillActive]}><Text style={[styles.pillText, sport === s.id && {color: GOLD_TEXT}]}>{s.label}</Text></TouchableOpacity>)}
-            </ScrollView>
+
+            <Text style={styles.label}>Your sports</Text>
+            {sports.length > 0 && (
+              <View style={styles.chipWrap}>
+                {sports.map(id => (
+                  <TouchableOpacity key={id} style={styles.sportChip} onPress={() => toggleSport(id)}>
+                    <Text style={styles.sportChipText}>{sportOf(id)?.label || id}</Text>
+                    <Text style={styles.sportChipX}>  ✕</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            <TouchableOpacity style={styles.dropBtn} onPress={() => setDropOpen(o => !o)}>
+              <Text style={styles.dropBtnText}>{sports.length ? 'Add another sport' : 'Add a sport'}</Text>
+              <Text style={styles.dropCaret}>{dropOpen ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {dropOpen && (
+              <View style={styles.dropList}>
+                <ScrollView style={{maxHeight: 260}} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {SPORTS_ABC.map(s => {
+                    const {members, mutuals} = sportCounts(s.id);
+                    const on = sports.includes(s.id);
+                    return (
+                      <TouchableOpacity key={s.id} style={[styles.dropItem, on && styles.dropItemOn]} onPress={() => toggleSport(s.id)}>
+                        <View style={{flex: 1}}>
+                          <Text style={[styles.dropItemText, on && {color: GOLD_TEXT, fontWeight: '600'}]}>{s.label}</Text>
+                          <Text style={styles.dropItemSub}>{members} {members === 1 ? 'person' : 'people'}{mutuals > 0 ? ` · ${mutuals} you follow` : ''}</Text>
+                        </View>
+                        {on && <Text style={{color: GOLD_TEXT, fontWeight: '700'}}>✓</Text>}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
             <Text style={styles.label}>Bio</Text>
             <TextInput style={styles.textArea} multiline placeholder="Tell people about you…" placeholderTextColor={TEXT3} value={bio} onChangeText={setBio} />
-            <Btn style={styles.primaryBtn} onPress={() => { setProfile({sport, bio: bio.trim(), photo}); setEditOpen(false); }}><Text style={styles.primaryBtnText}>Save</Text></Btn>
+            <Btn style={styles.primaryBtn} onPress={save}><Text style={styles.primaryBtnText}>Save</Text></Btn>
           </ScrollView>
         </View></View>
       </Modal>
@@ -939,7 +1044,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               <TouchableOpacity style={styles.filterOption} onPress={() => { setSportFilter('all'); setFilterOpen(false); }}>
                 <Text style={styles.filterOptionText}>All sports</Text>{sportFilter === 'all' && <Text style={{color: GOLD, fontWeight: '700'}}>✓</Text>}
               </TouchableOpacity>
-              {SPORTS.map(s => (
+              {SPORTS_ABC.map(s => (
                 <TouchableOpacity key={s.id} style={styles.filterOption} onPress={() => { setSportFilter(s.id); setFilterOpen(false); }}>
                   <View style={{flexDirection: 'row', alignItems: 'center'}}><View style={[styles.sportDot, {backgroundColor: s.bg}]} /><Text style={styles.filterOptionText}>{s.label}</Text></View>
                   {sportFilter === s.id && <Text style={{color: GOLD, fontWeight: '700'}}>✓</Text>}
@@ -1011,6 +1116,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           </View></View>
         </Modal>
       )}
+
+      <Toast message={toast} onHide={() => setToast('')} colors={c} />
+      <ConfirmModal data={confirm} onClose={() => setConfirm(null)} colors={c} />
     </SafeAreaView>
   );
 }
@@ -1090,6 +1198,18 @@ function makeStyles(c: any) {
   photoDrop: {height: 140, borderWidth: 1, borderColor: BORDER, borderStyle: 'dashed', borderRadius: 8, backgroundColor: BG2, alignItems: 'center', justifyContent: 'center'},
   pill: {backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8},
   pillActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
+  chipWrap: {flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8},
+  sportChip: {flexDirection: 'row', alignItems: 'center', backgroundColor: GOLD_LIGHT, borderWidth: 0.5, borderColor: GOLD, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7},
+  sportChipText: {fontSize: 13, color: GOLD_TEXT, fontWeight: '600'},
+  sportChipX: {fontSize: 12, color: GOLD_TEXT},
+  dropBtn: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: BG},
+  dropBtnText: {fontSize: 14, color: TEXT},
+  dropCaret: {fontSize: 10, color: TEXT2},
+  dropList: {borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, backgroundColor: BG, marginTop: 6, overflow: 'hidden'},
+  dropItem: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 0.5, borderBottomColor: BORDER},
+  dropItemOn: {backgroundColor: GOLD_LIGHT},
+  dropItemText: {fontSize: 14, color: TEXT},
+  dropItemSub: {fontSize: 11, color: TEXT2, marginTop: 2},
   pillText: {fontSize: 12, color: TEXT2},
   primaryBtn: {backgroundColor: GOLD, borderRadius: 16, paddingVertical: 15, alignItems: 'center', marginTop: 18, shadowColor: GOLD, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: {width: 0, height: 4}, elevation: 3},
   primaryBtnText: {color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.3},
