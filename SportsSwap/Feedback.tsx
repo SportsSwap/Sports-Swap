@@ -1,5 +1,41 @@
-import React, {useEffect, useRef} from 'react';
-import {View, Text, Modal, TouchableOpacity, StyleSheet, Animated, SafeAreaView} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet, Animated, SafeAreaView} from 'react-native';
+
+// Reusable sport dropdown — replaces every horizontal row of sport pills.
+// options: [{id, label}], value: selected id, onChange: (id) => void
+export function SportPicker({value, onChange, options, colors, placeholder, small}: any) {
+  const c = colors;
+  const [open, setOpen] = useState(false);
+  const sel = options.find((o: any) => o.id === value);
+  const fs = small ? 13 : 14;
+  return (
+    <View style={{marginBottom: 8}}>
+      <TouchableOpacity
+        style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 0.5, borderColor: c.BORDER, borderRadius: 8, paddingHorizontal: 12, paddingVertical: small ? 9 : 11, backgroundColor: c.BG}}
+        onPress={() => setOpen(o => !o)}>
+        <Text style={{fontSize: fs, color: sel ? c.TEXT : c.TEXT3}}>{sel ? sel.label : (placeholder || 'Choose a sport')}</Text>
+        <Text style={{fontSize: 9, color: c.TEXT2}}>{open ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+      {open && (
+        <View style={{borderWidth: 0.5, borderColor: c.BORDER, borderRadius: 8, backgroundColor: c.BG, marginTop: 4, overflow: 'hidden'}}>
+          <ScrollView style={{maxHeight: 240}} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+            {options.map((o: any) => {
+              const on = value === o.id;
+              return (
+                <TouchableOpacity key={o.id}
+                  style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: c.BORDER, backgroundColor: on ? c.GOLD_LIGHT : 'transparent'}}
+                  onPress={() => { onChange(o.id); setOpen(false); }}>
+                  <Text style={{fontSize: fs, color: on ? c.GOLD_TEXT : c.TEXT, fontWeight: on ? '600' : '400'}}>{o.label}</Text>
+                  {on && <Text style={{color: c.GOLD_TEXT, fontWeight: '700'}}>✓</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+    </View>
+  );
+}
 
 // In-app toast — slides up from the bottom, auto-hides. No native Apple alert.
 export function Toast({message, onHide, colors}: any) {

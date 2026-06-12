@@ -26,7 +26,7 @@ import { collection, addDoc, onSnapshot, orderBy, query, serverTimestamp, doc, g
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AuthScreen from './AuthScreen';
 import CommunityApp from './CommunityApp';
-import {Toast, ConfirmModal} from './Feedback';
+import {Toast, ConfirmModal, SportPicker} from './Feedback';
 import Settings from './Settings';
 
 const {width} = Dimensions.get('window');
@@ -385,15 +385,6 @@ export default function App() {
     });
   }
 
-  const sortedSports = [
-    SPORTS[0],
-    ...[...SPORTS.slice(1)].sort((a, b) => {
-      const ca = listings.filter(l => l.sport === a.id).length;
-      const cb = listings.filter(l => l.sport === b.id).length;
-      return cb - ca;
-    }),
-  ];
-
   // Hide conversations with people you've blocked
   const visibleChats = inboxChats.filter(ch => !(ch.participants || []).some((p: string) => p !== user.uid && isBlocked(p)));
 
@@ -647,10 +638,9 @@ export default function App() {
       <View style={styles.header}>
         <Logo colors={colors} />
         <View style={styles.searchWrap}>
-          <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search gear..."
+            placeholder="Search gear"
             placeholderTextColor={TEXT3}
             value={search}
             onChangeText={setSearch}
@@ -674,32 +664,20 @@ export default function App() {
             </View>
           ))}
           <View style={styles.adCta}>
-            <Text style={styles.adCtaText}>📣 Want to advertise? Tap here to apply →</Text>
+            <Text style={styles.adCtaText}>Want to advertise? Tap here to apply →</Text>
           </View>
         </ScrollView>
       </TouchableOpacity>
 
-      {/* Sport tabs */}
+      {/* Sport filter — dropdown */}
       <View style={styles.sportNavWrap}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sportNav}>
-          {sortedSports.map(s => {
-            const count = s.id === 'all' ? listings.length : listings.filter(l => l.sport === s.id).length;
-            return (
-              <TouchableOpacity
-                key={s.id}
-                style={[styles.sportTab, activeSport === s.id && styles.sportTabActive]}
-                onPress={() => setActiveSport(s.id)}>
-                <View style={[styles.sportTabDot, {backgroundColor: s.bg || GOLD}]} />
-                <Text style={[styles.sportTabLabel, activeSport === s.id && styles.sportTabLabelActive]}>{s.label}</Text>
-                {count > 0 && (
-                  <View style={styles.countBadge}>
-                    <Text style={styles.countBadgeText}>{count}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+        <SportPicker
+          value={activeSport}
+          onChange={setActiveSport}
+          options={[{id: 'all', label: 'All sports'}, ...SPORTS_ABC]}
+          colors={colors}
+          small
+        />
       </View>
 
       {/* Loading */}
@@ -749,8 +727,7 @@ export default function App() {
               {newPhotos.length === 0 ? (
                 <TouchableOpacity style={styles.photoDrop} onPress={pickListingPhoto}>
                   <View style={{alignItems: 'center'}}>
-                    <Text style={{fontSize: 28}}>📷</Text>
-                    <Text style={{color: TEXT2, fontSize: 13, marginTop: 4}}>Add up to 4 photos of your gear</Text>
+                    <Text style={{color: TEXT2, fontSize: 13}}>Add up to 4 photos of your gear</Text>
                   </View>
                 </TouchableOpacity>
               ) : (
@@ -1249,7 +1226,7 @@ function makeStyles(c: any) {
   adText: {fontSize: 12, color: TEXT2},
   adCta: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 34, backgroundColor: GOLD_LIGHT},
   adCtaText: {fontSize: 12, color: GOLD_TEXT, fontWeight: '600'},
-  sportNavWrap: {backgroundColor: BG, borderBottomWidth: 0.5, borderBottomColor: BORDER},
+  sportNavWrap: {backgroundColor: BG, borderBottomWidth: 0.5, borderBottomColor: BORDER, paddingHorizontal: 14, paddingTop: 10},
   sportNav: {paddingHorizontal: 8},
   sportTab: {paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 5, borderBottomWidth: 2, borderBottomColor: 'transparent'},
   sportTabActive: {borderBottomColor: GOLD},

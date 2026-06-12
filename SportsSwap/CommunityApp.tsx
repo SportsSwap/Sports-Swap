@@ -12,7 +12,7 @@ import {
 import {lightColors} from './theme';
 import Logo from './Logo';
 import Btn from './Btn';
-import {Toast, ConfirmModal} from './Feedback';
+import {Toast, ConfirmModal, SportPicker} from './Feedback';
 
 const SPORTS = [
   {id: 'football', label: 'Football', bg: '#EAF3DE'},
@@ -700,11 +700,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           <View style={styles.sheetHead}><Text style={styles.sheetTitle}>{kindTitle}</Text><TouchableOpacity onPress={() => setComposer(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
           <ScrollView>
             <Text style={styles.label}>Sport</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 8}}>
-              {SPORTS_ABC.map(s => <TouchableOpacity key={s.id} onPress={() => setSport(s.id)} style={[styles.pill, sport === s.id && styles.pillActive]}><Text style={[styles.pillText, sport === s.id && {color: GOLD_TEXT}]}>{s.label}</Text></TouchableOpacity>)}
-            </ScrollView>
+            <SportPicker value={sport} onChange={setSport} options={SPORTS_ABC} colors={c} small />
             <Text style={styles.label}>Photo (optional)</Text>
-            <TouchableOpacity style={styles.photoDrop} onPress={pick}>{photo ? <Image source={{uri: photo}} style={{width: '100%', height: '100%', borderRadius: 8}} /> : <Text style={{color: TEXT2}}>📷  Add a photo</Text>}</TouchableOpacity>
+            <TouchableOpacity style={styles.photoDrop} onPress={pick}>{photo ? <Image source={{uri: photo}} style={{width: '100%', height: '100%', borderRadius: 8}} /> : <Text style={{color: TEXT2}}>Add a photo</Text>}</TouchableOpacity>
             <Text style={styles.label}>{kind === 'question' ? 'Your question' : kind === 'achievement' ? 'Your achievement' : 'Description'}</Text>
             <TextInput style={styles.textArea} multiline placeholder={kindPh} placeholderTextColor={TEXT3} value={text} onChangeText={setText} />
             <Btn style={styles.primaryBtn} onPress={post} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Post</Text>}</Btn>
@@ -742,9 +740,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             <Text style={styles.label}>Group name</Text>
             <TextInput style={styles.input} placeholder="e.g. Sydney Sunday Runners" placeholderTextColor={TEXT3} value={name} onChangeText={setName} />
             <Text style={styles.label}>Sport</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 8}}>
-              {SPORTS_ABC.map(s => <TouchableOpacity key={s.id} onPress={() => setSport(s.id)} style={[styles.pill, sport === s.id && styles.pillActive]}><Text style={[styles.pillText, sport === s.id && {color: GOLD_TEXT}]}>{s.label}</Text></TouchableOpacity>)}
-            </ScrollView>
+            <SportPicker value={sport} onChange={setSport} options={SPORTS_ABC} colors={c} small />
             <Text style={styles.label}>Privacy</Text>
             <View style={{flexDirection: 'row', gap: 8, marginBottom: 8}}>
               <TouchableOpacity style={[styles.pill, !priv && styles.pillActive]} onPress={() => setPriv(false)}><Text style={[styles.pillText, !priv && {color: GOLD_TEXT}]}>Public</Text></TouchableOpacity>
@@ -1013,8 +1009,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         </View>
         {tab === 'community' && (
           <View style={styles.searchWrap}>
-            <Text style={{fontSize: 14}}>🔍</Text>
-            <TextInput style={styles.searchInput} placeholder="Search people or groups…" placeholderTextColor={TEXT3} value={search} onChangeText={setSearch} returnKeyType="search" />
+            <TextInput style={styles.searchInput} placeholder="Search people or groups" placeholderTextColor={TEXT3} value={search} onChangeText={setSearch} returnKeyType="search" />
             {search.length > 0 && <TouchableOpacity onPress={() => setSearch('')}><Text style={{fontSize: 16, color: TEXT3}}>✕</Text></TouchableOpacity>}
           </View>
         )}
@@ -1042,7 +1037,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               </TouchableOpacity>
               {SPORTS_ABC.map(s => (
                 <TouchableOpacity key={s.id} style={styles.filterOption} onPress={() => { setSportFilter(s.id); setFilterOpen(false); }}>
-                  <View style={{flexDirection: 'row', alignItems: 'center'}}><View style={[styles.sportDot, {backgroundColor: s.bg}]} /><Text style={styles.filterOptionText}>{s.label}</Text></View>
+                  <Text style={styles.filterOptionText}>{s.label}</Text>
                   {sportFilter === s.id && <Text style={{color: GOLD, fontWeight: '700'}}>✓</Text>}
                 </TouchableOpacity>
               ))}
