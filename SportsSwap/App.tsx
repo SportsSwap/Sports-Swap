@@ -30,6 +30,7 @@ import AuthScreen from './AuthScreen';
 import CommunityApp from './CommunityApp';
 import {Toast, ConfirmModal, SportPicker} from './Feedback';
 import Settings from './Settings';
+import Icon from './Icon';
 
 const {width} = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -89,7 +90,6 @@ const NAV_TABS = [
 
 // Listings now come from Firebase in real time — no dummy data
 
-const QUICK_MSGS = ['Is this still available?', "What's your best price?", 'Can I pick up locally?', 'Any more photos?'];
 
 // Google Form where companies apply to advertise
 const AD_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeWaKXksc7LeElZjiEdcw9WYRahrYvIUYcHqYgguC7XtE5T-Q/viewform';
@@ -267,7 +267,7 @@ export default function App() {
 
   // Theme (light/dark)
   const colors = dark ? darkColors : lightColors;
-  const {GOLD, GOLD_LIGHT, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = colors;
+  const {GOLD, GOLD_DARK, GOLD_LIGHT, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = colors;
   const styles = useMemo(() => makeStyles(colors), [colors]);
   function toggleDark() {
     const nv = !dark; setDark(nv);
@@ -608,10 +608,10 @@ export default function App() {
           {/* Messages | Activity switcher */}
           <View style={styles.segmentRow}>
             <TouchableOpacity style={[styles.segment, inboxView === 'messages' && styles.segmentActive]} onPress={() => setInboxView('messages')}>
-              <Text style={[styles.segmentText, inboxView === 'messages' && styles.segmentTextActive]}>Messages{unreadMsgs > 0 ? ` (${unreadMsgs})` : ''}</Text>
+              <Text style={[styles.segmentText, inboxView === 'messages' && styles.segmentTextActive]}>Messages{unreadMsgs > 0 ? ` (${unreadMsgs > 9 ? '9+' : unreadMsgs})` : ''}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.segment, inboxView === 'activity' && styles.segmentActive]} onPress={() => { setInboxView('activity'); markNotifsRead(); }}>
-              <Text style={[styles.segmentText, inboxView === 'activity' && styles.segmentTextActive]}>Activity{unreadNotifs > 0 ? ` (${unreadNotifs})` : ''}</Text>
+              <Text style={[styles.segmentText, inboxView === 'activity' && styles.segmentTextActive]}>Activity{unreadNotifs > 0 ? ` (${unreadNotifs > 9 ? '9+' : unreadNotifs})` : ''}</Text>
             </TouchableOpacity>
           </View>
 
@@ -1066,62 +1066,89 @@ export default function App() {
       )}
 
       {/* Chat modal — root level so it opens from any tab */}
-      <Modal visible={chatOpen} animationType="slide" transparent>
-        <View style={styles.overlay}>
-          <View style={styles.chatModal}>
-            <View style={styles.chatHeader}>
-              <TouchableOpacity onPress={() => {setChatOpen(false); setActiveChat(null);}}>
-                <Text style={styles.backBtn}>←</Text>
-              </TouchableOpacity>
-              <View style={{flex: 1}}>
-                <Text style={styles.chatItemName} numberOfLines={1}>{activeChat?.title}</Text>
-                <Text style={styles.chatSeller}>{activeChat?.otherName}</Text>
-              </View>
-              {activeChat?.otherId ? (
-                <TouchableOpacity style={styles.rateBtn} onPress={() => openRate(activeChat.otherId, activeChat.otherName)}>
-                  <Text style={styles.rateBtnText}>★ Rate</Text>
-                </TouchableOpacity>
-              ) : null}
-              <Text style={styles.chatPrice}>${activeChat?.price}</Text>
+      <Modal visible={chatOpen} animationType="slide" onRequestClose={() => {setChatOpen(false); setActiveChat(null);}}>
+        {(() => {
+          const otherU = usersMap[activeChat?.otherId] || {};
+          const liveChat = inboxChats.find(ch => ch.id === activeChat?.id);
+          const otherReadAt = liveChat?.reads?.[activeChat?.otherId]?.seconds || 0;
+          // Index of my last message (for the read/sent receipt)
+          let myLastIdx = -1;
+          chatMessages.forEach((m, i) => { if (m.senderId === user.uid) myLastIdx = i; });
+          return (
+        <SafeAreaView style={styles.chatFull}>
+          <View style={styles.chatHeader}>
+            <TouchableOpacity onPress={() => {setChatOpen(false); setActiveChat(null);}} style={{paddingRight: 4}}>
+              <Icon name="chevron-back" size={26} color={TEXT} />
+            </TouchableOpacity>
+            <View style={[styles.chatAvatar, {backgroundColor: otherU.avatarColor || GOLD_LIGHT}]}>
+              {otherU.avatarPhoto
+                ? <Image source={{uri: otherU.avatarPhoto}} style={{width: 38, height: 38, borderRadius: 19}} />
+                : <Text style={{fontSize: 17}}>{otherU.avatarEmoji || (activeChat?.otherName ? activeChat.otherName.charAt(0).toUpperCase() : '?')}</Text>}
             </View>
-            <ScrollView style={styles.chatMessages} contentContainerStyle={{padding: 14}}>
-              {chatMessages.length === 0 && (
-                <Text style={{textAlign: 'center', color: TEXT3, fontSize: 13, marginTop: 20}}>
-                  Say hello 👋 — start the conversation!
-                </Text>
-              )}
-              {chatMessages.map(m => {
-                const mine = m.senderId === user.uid;
-                return (
-                  <View key={m.id} style={[styles.msgRow, mine && styles.msgRowMine]}>
+            <View style={{flex: 1}}>
+              <Text style={styles.chatHeadName} numberOfLines={1}>{activeChat?.otherName}</Text>
+              {!!activeChat?.title && <Text style={styles.chatSeller} numberOfLines={1}>{activeChat.title}</Text>}
+            </View>
+            {activeChat?.otherId ? (
+              <TouchableOpacity style={styles.rateBtn} onPress={() => {
+                const t = {id: activeChat.otherId, name: activeChat.otherName};
+                setChatOpen(false);
+                setTimeout(() => openRate(t.id, t.name), 350);
+              }}>
+                <Icon name="star" size={13} color={GOLD_TEXT} /><Text style={styles.rateBtnText}>  Rate</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <ScrollView style={styles.chatMessages} contentContainerStyle={{padding: 14}}>
+            {chatMessages.length === 0 && (
+              <Text style={{textAlign: 'center', color: TEXT3, fontSize: 13, marginTop: 20}}>
+                Start the conversation
+              </Text>
+            )}
+            {chatMessages.map((m, i) => {
+              const mine = m.senderId === user.uid;
+              const isMyLast = i === myLastIdx;
+              const wasRead = otherReadAt && (otherReadAt >= (m.createdAt?.seconds || Infinity));
+              return (
+                <View key={m.id}>
+                  <View style={[styles.msgRow, mine && styles.msgRowMine]}>
+                    {!mine && (
+                      <View style={[styles.msgAvatar, {backgroundColor: otherU.avatarColor || GOLD_LIGHT}]}>
+                        {otherU.avatarPhoto
+                          ? <Image source={{uri: otherU.avatarPhoto}} style={{width: 26, height: 26, borderRadius: 13}} />
+                          : <Text style={{fontSize: 12}}>{otherU.avatarEmoji || (m.senderName ? m.senderName.charAt(0).toUpperCase() : '?')}</Text>}
+                      </View>
+                    )}
                     <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
                       <Text style={mine ? styles.bubbleMineText : styles.bubbleTheirsText}>{m.text}</Text>
                     </View>
                   </View>
-                );
-              })}
-            </ScrollView>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickMsgs}>
-              {QUICK_MSGS.map(q => (
-                <TouchableOpacity key={q} style={styles.qm} onPress={() => sendMessage(q)}>
-                  <Text style={styles.qmText}>{q}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <View style={styles.chatInputRow}>
-              <TextInput
-                style={styles.chatInput}
-                placeholder="Type a message…"
-                placeholderTextColor={TEXT3}
-                value={inputText}
-                onChangeText={setInputText}
-              />
-              <TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage(inputText)}>
-                <Text style={styles.sendBtnText}>➤</Text>
-              </TouchableOpacity>
-            </View>
+                  {isMyLast && (
+                    <Text style={styles.receipt}>
+                      {wasRead
+                        ? `Read · ${notifAgo(liveChat?.reads?.[activeChat?.otherId])}`
+                        : `Sent · ${notifAgo(m.createdAt)}`}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
+          </ScrollView>
+          <View style={styles.chatInputRow}>
+            <TextInput
+              style={styles.chatInput}
+              placeholder="Type a message…"
+              placeholderTextColor={TEXT3}
+              value={inputText}
+              onChangeText={setInputText}
+            />
+            <TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage(inputText)}>
+              <Icon name="send" size={18} color="#fff" />
+            </TouchableOpacity>
           </View>
-        </View>
+        </SafeAreaView>
+          );
+        })()}
       </Modal>
 
       {/* Dropdown Menu — root level, works on every tab */}
@@ -1230,10 +1257,12 @@ export default function App() {
         )}
         {NAV_TABS.map(t => (
           <TouchableOpacity key={t.id} style={styles.bnavBtn} onPress={() => { try { Vibration.vibrate(5); } catch (e) {} setTab(t.id); }}>
-            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <View>
               <Text style={[styles.bnavText, tab === t.id && styles.bnavActive]}>{t.label}</Text>
               {t.id === 'inbox' && unreadTotal > 0 && (
-                <View style={[styles.navBadge, tab === 'inbox' && {backgroundColor: '#fff'}]}><Text style={styles.navBadgeText}>{unreadTotal > 9 ? '9+' : unreadTotal}</Text></View>
+                <View style={[styles.navBadge, tab === 'inbox' && {backgroundColor: '#fff', borderColor: GOLD_DARK}]}>
+                  <Text style={[styles.navBadgeText, tab === 'inbox' && {color: GOLD_DARK}]}>{unreadTotal > 9 ? '9+' : unreadTotal}</Text>
+                </View>
               )}
             </View>
           </TouchableOpacity>
@@ -1321,27 +1350,24 @@ function makeStyles(c: any) {
   rateBtnText: {fontSize: 12, fontWeight: '700', color: GOLD_TEXT},
   cbtn: {backgroundColor: GOLD, borderRadius: 16, paddingVertical: 15, alignItems: 'center', shadowColor: GOLD, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: {width: 0, height: 4}, elevation: 3},
   cbtnText: {color: 'white', fontSize: 15, fontWeight: '700', letterSpacing: 0.3},
-  chatModal: {backgroundColor: BG, borderTopLeftRadius: 16, borderTopRightRadius: 16, height: '85%', flexDirection: 'column'},
-  chatHeader: {flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, borderBottomWidth: 0.5, borderBottomColor: BORDER},
-  backBtn: {fontSize: 22, color: TEXT2, marginRight: 4},
-  chatItemName: {fontSize: 13, fontWeight: '500', color: TEXT},
+  chatFull: {flex: 1, backgroundColor: BG},
+  chatHeader: {flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: BORDER},
+  chatAvatar: {width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', overflow: 'hidden'},
+  chatHeadName: {fontSize: 15, fontWeight: '700', color: TEXT},
   chatSeller: {fontSize: 12, color: TEXT2},
-  chatPrice: {fontSize: 15, fontWeight: '700', color: GOLD},
   chatMessages: {flex: 1},
-  msgRow: {flexDirection: 'row', marginBottom: 8},
+  msgRow: {flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginBottom: 8},
   msgRowMine: {justifyContent: 'flex-end'},
+  msgAvatar: {width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', overflow: 'hidden'},
   bubble: {maxWidth: '75%', padding: 10, borderRadius: 12},
   bubbleTheirs: {backgroundColor: BG2, borderBottomLeftRadius: 2},
   bubbleMine: {backgroundColor: GOLD_LIGHT, borderBottomRightRadius: 2},
   bubbleTheirsText: {fontSize: 13, color: TEXT},
   bubbleMineText: {fontSize: 13, color: GOLD_TEXT},
-  quickMsgs: {maxHeight: 40, paddingHorizontal: 14, marginBottom: 8},
-  qm: {backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8, borderWidth: 0.5, borderColor: BORDER},
-  qmText: {fontSize: 12, color: TEXT2},
+  receipt: {fontSize: 11, color: TEXT3, textAlign: 'right', marginTop: -2, marginBottom: 8, marginRight: 2},
   chatInputRow: {flexDirection: 'row', gap: 8, padding: 12, borderTopWidth: 0.5, borderTopColor: BORDER, alignItems: 'center'},
   chatInput: {flex: 1, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, color: TEXT},
   sendBtn: {width: 36, height: 36, borderRadius: 18, backgroundColor: GOLD, alignItems: 'center', justifyContent: 'center'},
-  sendBtnText: {color: 'white', fontSize: 16},
   postLabel: {fontSize: 12, color: TEXT2, marginBottom: 4, marginTop: 12},
   postInput: {borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, padding: 10, fontSize: 14, color: TEXT, backgroundColor: BG},
   dropdownBtn: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: BG, marginBottom: 10},
@@ -1408,8 +1434,8 @@ function makeStyles(c: any) {
   notifText: {fontSize: 14, color: TEXT, lineHeight: 19},
   notifTime: {fontSize: 12, color: TEXT2, marginTop: 2},
   unreadDot: {width: 9, height: 9, borderRadius: 5, backgroundColor: GOLD},
-  navBadge: {backgroundColor: GOLD, borderRadius: 9, minWidth: 17, height: 17, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', marginLeft: 5},
-  navBadgeText: {color: 'white', fontSize: 10, fontWeight: '800'},
+  navBadge: {position: 'absolute', top: -8, right: -16, backgroundColor: GOLD, borderRadius: 8, minWidth: 16, height: 16, paddingHorizontal: 3, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: BG},
+  navBadgeText: {color: 'white', fontSize: 9, fontWeight: '800'},
   // Photo picker thumbnails
   photoThumbWrap: {width: 90, height: 90, borderRadius: 12, marginRight: 8, overflow: 'hidden'},
   photoThumb: {width: '100%', height: '100%', resizeMode: 'cover'},
