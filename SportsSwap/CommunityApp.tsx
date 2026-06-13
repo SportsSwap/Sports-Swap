@@ -279,19 +279,16 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     setDoc(doc(db, 'users', uid), {savedPostIds: next}, {merge: true});
   }
 
-  // Repost to the community feed
+  // Repost to the community feed — instant, no confirm
   function repost(p: any) {
-    Alert.alert('Repost', 'Repost this to the community feed?', [
-      {text: 'Cancel', style: 'cancel'},
-      {text: 'Repost', onPress: async () => {
-        await addDoc(collection(db, 'cposts'), {
-          authorId: uid, authorName: username, sport: p.sport, kind: p.kind || 'post',
-          text: p.text || '', photo: p.photo || null, repostFrom: p.repostFrom || p.authorName,
-          announcement: false, votes: 0, comments: [], createdAt: serverTimestamp(),
-        });
-        Alert.alert('Reposted', 'Shared to the feed.');
-      }},
-    ]);
+    buzz();
+    setToast('Reposted to the feed');
+    addDoc(collection(db, 'cposts'), {
+      authorId: uid, authorName: username, sport: p.sport, kind: p.kind || 'post',
+      text: p.text || '', photo: p.photo || null, photos: p.photos || [], tags: p.tags || [],
+      repostFrom: p.repostFrom || p.authorName,
+      announcement: false, votes: 0, comments: [], createdAt: serverTimestamp(),
+    }).catch(() => setToast("Couldn't repost — check your connection"));
   }
 
   const myGroups = groups.filter(g => isJoined(g));
@@ -392,9 +389,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   // ---------- POST CARD ----------
   function PostCard({p, onOpen, canPin}: any) {
     return (
-      <TouchableOpacity style={[styles.card, p.kind === 'achievement' && styles.cardAchievement, p.kind === 'question' && styles.cardQuestion, p.pinned && styles.cardPinned]} onPress={onOpen} activeOpacity={0.9}>
+      <TouchableOpacity style={[styles.card, p.kind === 'achievement' && styles.cardAchievement, p.kind === 'question' && styles.cardQuestion, !!p.repostFrom && styles.cardRepost, p.pinned && styles.cardPinned]} onPress={onOpen} activeOpacity={0.9}>
         {p.pinned && <View style={styles.pinBadge}><Text style={styles.pinBadgeText}>PINNED</Text></View>}
-        {!!p.repostFrom && <Text style={styles.repostLabel}>⟳ {p.authorName} reposted{p.repostFrom !== p.authorName ? ` from ${p.repostFrom}` : ''}</Text>}
+        {!!p.repostFrom && <View style={styles.repostBadge}><Icon name="repeat" size={12} color={GOLD_DARK} /><Text style={styles.repostBadgeText}>{p.authorName} reposted{p.repostFrom !== p.authorName ? ` from ${p.repostFrom}` : ''}</Text></View>}
         {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>ANNOUNCEMENT</Text></View>}
         {p.kind === 'achievement' && <View style={styles.starBadge}><Icon name="medal" size={12} color={GOLD_DARK} /><Text style={styles.starBadgeText}>ACHIEVEMENT</Text></View>}
         {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>QUESTION</Text></View>}
@@ -803,15 +800,17 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const [tags, setTags] = useState<{id: string; name: string}[]>([]);
     const [tagOpen, setTagOpen] = useState(false);
     const [tagQuery, setTagQuery] = useState('');
+    const [postTarget, setPostTarget] = useState(composer.target === 'group' ? composer.groupId : 'community');
+    const targetOptions = [{id: 'community', label: 'Community'}, ...myGroups.map(g => ({id: g.id, label: g.name}))];
     const kind = composer.kind || 'post';
     const kindTitle = kind === 'question' ? 'Ask a question' : kind === 'achievement' ? 'Share an achievement' : (composer.target === 'group' ? 'Post to group' : 'Create a post');
     const kindPh = kind === 'question' ? "What's your question?" : kind === 'achievement' ? 'Share your achievement!' : 'Share news, a tip, a result…';
     function pick() {
-      const remaining = 4 - photos.length;
-      if (remaining <= 0) { setToast('You can add up to 4 photos'); return; }
-      launchImageLibrary({mediaType: 'photo', maxWidth: 1000, maxHeight: 1000, quality: 0.7, includeBase64: true, selectionLimit: remaining}, (res: any) => {
+      const remaining = 10 - photos.length;
+      if (remaining <= 0) { setToast('You can add up to 10 photos'); return; }
+      launchImageLibrary({mediaType: 'photo', maxWidth: 900, maxHeight: 900, quality: 0.6, includeBase64: true, selectionLimit: remaining}, (res: any) => {
         const added = (res.assets || []).filter((a: any) => a?.base64).map((a: any) => `data:${a.type || 'image/jpeg'};base64,${a.base64}`);
-        if (added.length) setPhotos(prev => [...prev, ...added].slice(0, 4));
+        if (added.length) setPhotos(prev => [...prev, ...added].slice(0, 10));
       });
     }
     const toggleTag = (u: any) => setTags(prev => prev.some(t => t.id === u.id) ? prev.filter(t => t.id !== u.id) : [...prev, {id: u.id, name: u.username}]);
@@ -823,7 +822,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       setComposer(null);
       setToast('Posted');
       addDoc(collection(db, 'cposts'), {
-        authorId: uid, authorName: username, sport, groupId: composer.target === 'group' ? composer.groupId : null,
+        authorId: uid, authorName: username, sport, groupId: postTarget === 'community' ? null : postTarget,
         announcement: false, kind, text: text.trim(), photo: photos[0] || null, photos, tags, votes: 0, comments: [], createdAt: serverTimestamp(),
       }).catch(() => setToast("Couldn't post — check your connection"));
       // Notify anyone tagged
@@ -838,10 +837,12 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         <View style={styles.overlay}><View style={styles.sheet}>
           <View style={styles.sheetHead}><Text style={styles.sheetTitle}>{kindTitle}</Text><TouchableOpacity onPress={() => setComposer(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
           <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={styles.label}>Post to</Text>
+            <SportPicker value={postTarget} onChange={setPostTarget} options={targetOptions} colors={c} small placeholder="Community" />
             <Text style={styles.label}>Sport</Text>
             <SportPicker value={sport} onChange={setSport} options={SPORTS_ABC} colors={c} small />
 
-            <Text style={styles.label}>Photos ({photos.length}/4)</Text>
+            <Text style={styles.label}>Photos ({photos.length}/10)</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 4}}>
               {photos.map((ph, i) => (
                 <View key={i} style={styles.composerThumbWrap}>
@@ -1222,7 +1223,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
       {loading
         ? <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}><ActivityIndicator size="large" color={GOLD} /><Text style={{color: TEXT2, marginTop: 10}}>Loading community…</Text></View>
-        : (tab === 'community' ? <CommunityFeed /> : <ProfileScreen />)}
+        : (tab === 'community' ? CommunityFeed() : ProfileScreen())}
 
       {thread && <ThreadView />}
       {group && <GroupPage />}
@@ -1386,6 +1387,8 @@ function makeStyles(c: any) {
   iconBtn: {flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 16},
   iconCount: {fontSize: 13, fontWeight: '600', color: TEXT2},
   repostLabel: {fontSize: 12, color: TEXT2, fontWeight: '600', marginBottom: 8},
+  repostBadge: {flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8},
+  repostBadgeText: {fontSize: 12, color: GOLD_DARK, fontWeight: '700'},
   shareOpt: {paddingVertical: 14, borderBottomWidth: 0.5, borderBottomColor: BORDER},
   shareOptText: {fontSize: 15, fontWeight: '500', color: TEXT},
   shareRow: {flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8},
@@ -1473,6 +1476,7 @@ function makeStyles(c: any) {
   medalText: {fontSize: 14, fontWeight: '700', color: TEXT},
   cardPinned: {borderColor: GOLD, borderWidth: 1},
   cardAchievement: {borderColor: GOLD, borderWidth: 1},
+  cardRepost: {borderColor: GOLD, borderWidth: 1, backgroundColor: GOLD_LIGHT},
   cardQuestion: {borderColor: '#378ADD', borderWidth: 1},
   pinBadge: {backgroundColor: GOLD_LIGHT, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
   pinBadgeText: {fontSize: 11, fontWeight: '700', color: GOLD_DARK},

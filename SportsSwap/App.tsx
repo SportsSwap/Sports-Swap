@@ -590,15 +590,15 @@ export default function App() {
     ]);
   }
   function grabPhoto(mode: 'camera' | 'library') {
-    const remaining = 4 - newPhotos.length;
-    if (remaining <= 0) { Alert.alert('Photo limit', 'You can add up to 4 photos per listing.'); return; }
-    const opts = {mediaType: 'photo' as const, maxWidth: 1000, maxHeight: 1000, quality: 0.6 as const, includeBase64: true};
+    const remaining = 10 - newPhotos.length;
+    if (remaining <= 0) { setToast('You can add up to 10 photos'); return; }
+    const opts = {mediaType: 'photo' as const, maxWidth: 900, maxHeight: 900, quality: 0.6 as const, includeBase64: true};
     const cb = (res: any) => {
       if (res.didCancel || res.errorCode) return;
       const added = (res.assets || [])
         .filter((a: any) => a?.base64)
         .map((a: any) => `data:${a.type || 'image/jpeg'};base64,${a.base64}`);
-      if (added.length) setNewPhotos(prev => [...prev, ...added].slice(0, 4));
+      if (added.length) setNewPhotos(prev => [...prev, ...added].slice(0, 10));
     };
     mode === 'camera' ? launchCamera(opts, cb) : launchImageLibrary({...opts, selectionLimit: remaining}, cb);
   }
@@ -823,11 +823,11 @@ export default function App() {
               </TouchableOpacity>
             </View>
             <ScrollView>
-              <Text style={styles.postLabel}>Photos ({newPhotos.length}/4)</Text>
+              <Text style={styles.postLabel}>Photos ({newPhotos.length}/10)</Text>
               {newPhotos.length === 0 ? (
                 <TouchableOpacity style={styles.photoDrop} onPress={pickListingPhoto}>
                   <View style={{alignItems: 'center'}}>
-                    <Text style={{color: TEXT2, fontSize: 13}}>Add up to 4 photos of your gear</Text>
+                    <Text style={{color: TEXT2, fontSize: 13}}>Add up to 10 photos of your gear</Text>
                   </View>
                 </TouchableOpacity>
               ) : (
@@ -840,7 +840,7 @@ export default function App() {
                       </TouchableOpacity>
                     </View>
                   ))}
-                  {newPhotos.length < 4 && (
+                  {newPhotos.length < 10 && (
                     <TouchableOpacity style={styles.photoAddTile} onPress={pickListingPhoto}>
                       <Text style={{fontSize: 22, color: GOLD}}>＋</Text>
                     </TouchableOpacity>
