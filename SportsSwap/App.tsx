@@ -440,7 +440,13 @@ export default function App() {
   const filtered = listings.filter(l => {
     if (isBlocked(l.sellerId)) return false;
     if (activeSport !== 'all' && l.sport !== activeSport) return false;
-    if (search && !l.title.toLowerCase().includes(search.toLowerCase())) return false;
+    // Search matches the item name OR the suburb/city
+    if (search) {
+      const q = search.toLowerCase();
+      const inTitle = (l.title || '').toLowerCase().includes(q);
+      const inLoc = (l.loc || '').toLowerCase().includes(q);
+      if (!inTitle && !inLoc) return false;
+    }
     return true;
   });
 
@@ -734,7 +740,7 @@ export default function App() {
         <View style={styles.searchWrap}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search gear"
+            placeholder="Search gear or suburb"
             placeholderTextColor={TEXT3}
             value={search}
             onChangeText={setSearch}
