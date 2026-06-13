@@ -136,6 +136,7 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [avatarEmoji, setAvatarEmoji] = useState('');
   const [avatarColor, setAvatarColor] = useState('#FBF1D6');
+  const [avatarPhoto, setAvatarPhoto] = useState<string | null>(null);
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [listings, setListings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -178,6 +179,7 @@ export default function App() {
           setUsername(data.username || 'User');
           if (data.avatarEmoji) setAvatarEmoji(data.avatarEmoji);
           if (data.avatarColor) setAvatarColor(data.avatarColor);
+          if (data.avatarPhoto) setAvatarPhoto(data.avatarPhoto);
           if (Array.isArray(data.savedIds)) setSaved(new Set(data.savedIds));
           setDark(!!data.darkMode);
           if (data.blockedUsers) setBlockedUsers(data.blockedUsers);
@@ -228,6 +230,9 @@ export default function App() {
       const m: any = {};
       snapshot.docs.forEach(d => { m[d.id] = d.data(); });
       setUsersMap(m);
+      // Keep my own profile photo in sync if I change it in the Community tab
+      const me = m[user.uid];
+      if (me && me.avatarPhoto !== undefined) setAvatarPhoto(me.avatarPhoto);
     });
     return () => unsub();
   }, [user]);
@@ -595,7 +600,9 @@ export default function App() {
         <SafeAreaView style={styles.safe}>
           <View style={[styles.header, {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}]}>
             <Logo colors={colors} />
-            <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}><Text style={styles.avatarText}>{username.charAt(0).toUpperCase()}</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}>
+              {avatarPhoto ? <Image source={{uri: avatarPhoto}} style={styles.avatarImg} /> : <Text style={styles.avatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>}
+            </TouchableOpacity>
           </View>
 
           {/* Messages | Activity switcher */}
@@ -642,8 +649,8 @@ export default function App() {
                 const unread = isUnread(chat);
                 return (
                   <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
-                    <View style={[styles.convoAvatar, {backgroundColor: otherU.avatarColor || '#FBF1D6'}]}>
-                      <Text style={{fontSize: 20}}>{otherU.avatarEmoji || (otherName ? otherName.charAt(0).toUpperCase() : '🏆')}</Text>
+                    <View style={[styles.convoAvatar, {backgroundColor: otherU.avatarColor || '#FBF1D6', overflow: 'hidden'}]}>
+                      {otherU.avatarPhoto ? <Image source={{uri: otherU.avatarPhoto}} style={{width: 46, height: 46, borderRadius: 23}} /> : <Text style={{fontSize: 20}}>{otherU.avatarEmoji || (otherName ? otherName.charAt(0).toUpperCase() : '🏆')}</Text>}
                     </View>
                     <View style={{flex: 1, minWidth: 0}}>
                       <Text style={[styles.convoName, unread && {fontWeight: '800'}]} numberOfLines={1}>{otherName}</Text>
@@ -678,7 +685,7 @@ export default function App() {
           <Text style={styles.sellBtnText}>+ Sell</Text>
         </Btn>
         <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}>
-          <Text style={styles.avatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>
+          {avatarPhoto ? <Image source={{uri: avatarPhoto}} style={styles.avatarImg} /> : <Text style={styles.avatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>}
         </TouchableOpacity>
       </View>
 
@@ -984,8 +991,8 @@ export default function App() {
                   const otherU = usersMap[otherId] || {};
                   return (
                     <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
-                      <View style={[styles.convoAvatar, {backgroundColor: otherU.avatarColor || '#FBF1D6'}]}>
-                        <Text style={{fontSize: 20}}>{otherU.avatarEmoji || (otherName ? otherName.charAt(0).toUpperCase() : '🏆')}</Text>
+                      <View style={[styles.convoAvatar, {backgroundColor: otherU.avatarColor || '#FBF1D6', overflow: 'hidden'}]}>
+                        {otherU.avatarPhoto ? <Image source={{uri: otherU.avatarPhoto}} style={{width: 46, height: 46, borderRadius: 23}} /> : <Text style={{fontSize: 20}}>{otherU.avatarEmoji || (otherName ? otherName.charAt(0).toUpperCase() : '🏆')}</Text>}
                       </View>
                       <View style={{flex: 1, minWidth: 0}}>
                         <Text style={styles.convoName} numberOfLines={1}>{otherName}</Text>
@@ -1123,7 +1130,7 @@ export default function App() {
           <View style={styles.menuCard}>
             <View style={styles.menuHeader}>
               <View style={[styles.menuAvatar, {backgroundColor: avatarColor}]}>
-                <Text style={styles.menuAvatarText}>{username.charAt(0).toUpperCase()}</Text>
+                {avatarPhoto ? <Image source={{uri: avatarPhoto}} style={styles.menuAvatarImg} /> : <Text style={styles.menuAvatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>}
               </View>
               <View style={{flex: 1}}>
                 <Text style={styles.menuName}>{username}</Text>
@@ -1350,15 +1357,17 @@ function makeStyles(c: any) {
   sportPillActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
   sportPillText: {fontSize: 12, color: TEXT2},
   sportPillTextActive: {color: GOLD_TEXT, fontWeight: '500'},
-  avatarBtn: {width: 32, height: 32, borderRadius: 16, backgroundColor: GOLD_LIGHT, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: GOLD},
+  avatarBtn: {width: 32, height: 32, borderRadius: 16, backgroundColor: GOLD_LIGHT, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: GOLD, overflow: 'hidden'},
   avatarText: {fontSize: 13, fontWeight: '700', color: GOLD_TEXT},
+  avatarImg: {width: 32, height: 32, borderRadius: 16},
+  menuAvatarImg: {width: 40, height: 40, borderRadius: 20},
   soldBtn: {backgroundColor: '#27500A', borderRadius: 10, paddingVertical: 13, alignItems: 'center'},
   soldBtnText: {color: 'white', fontSize: 15, fontWeight: '600'},
   // Dropdown menu
   menuBackdrop: {flex: 1, backgroundColor: 'rgba(0,0,0,0.3)'},
   menuCard: {position: 'absolute', top: 56, right: 12, backgroundColor: BG, borderRadius: 12, paddingVertical: 6, width: 240, borderWidth: 0.5, borderColor: BORDER, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: {width: 0, height: 4}, elevation: 6},
   menuHeader: {flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: 0.5, borderBottomColor: BORDER, marginBottom: 4},
-  menuAvatar: {width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: GOLD},
+  menuAvatar: {width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: GOLD, overflow: 'hidden'},
   menuAvatarText: {fontSize: 18, fontWeight: '700', color: GOLD_TEXT},
   menuName: {fontSize: 14, fontWeight: '600', color: TEXT},
   menuEmail: {fontSize: 12, color: TEXT2},

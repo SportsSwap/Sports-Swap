@@ -1,8 +1,10 @@
 import React, {useState, useEffect, useMemo, useRef} from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Modal,
-  StyleSheet, Image, Alert, ActivityIndicator, SafeAreaView, Vibration,
+  StyleSheet, Image, Alert, ActivityIndicator, SafeAreaView, Vibration, Dimensions,
 } from 'react-native';
+
+const WIDTH = Dimensions.get('window').width;
 
 // Tiny tap feedback for likes/votes (no-op on the simulator — only real phones vibrate)
 const buzz = () => { try { Vibration.vibrate(10); } catch (e) {} };
@@ -16,6 +18,7 @@ import {lightColors} from './theme';
 import Logo from './Logo';
 import Btn from './Btn';
 import {Toast, ConfirmModal, SportPicker} from './Feedback';
+import Icon from './Icon';
 
 const SPORTS = [
   {id: 'football', label: 'Football', bg: '#EAF3DE'},
@@ -130,6 +133,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const [composer, setComposer] = useState<any>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
   const [follows, setFollows] = useState<any[]>([]);
   const [sportFilter, setSportFilter] = useState('all');
   const [feedSort, setFeedSort] = useState<'top' | 'new'>('top');
@@ -171,11 +175,16 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       ...prev,
       sports: me.sports && me.sports.length ? me.sports : (me.mainSport ? [me.mainSport] : prev.sports || []),
       sport: me.mainSport || (me.sports && me.sports[0]) || prev.sport,
+      photo: me.avatarPhoto || prev.photo,
+      bio: me.bio != null ? me.bio : prev.bio,
     }));
   }, [users, uid]);
 
   // Hide content from people you've blocked
   const posts = allPosts.filter(p => !blocked[p.authorId]);
+
+  // One profile photo per person, used everywhere — mine comes from local state (freshest), others from their user doc
+  const photoOf = (id: string) => (id === uid ? profile.photo : null) || users.find(u => u.id === id)?.avatarPhoto || null;
 
   const thread = posts.find(p => p.id === threadId);
   const group = groups.find(g => g.id === groupId);
@@ -215,9 +224,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     setMyVotes({...myVotes, [p.id]: nv});
     try { await updateDoc(doc(db, 'cposts', p.id), {votes: (p.votes || 0) + delta}); } catch (e) {}
   }
-  async function addCommentTo(p: any, text: string) {
+  async function addCommentTo(p: any, text: string, tags: {id: string; name: string}[] = []) {
     if (!text.trim() || !clean(text)) return false;
-    const next = [...(p.comments || []), {authorId: uid, authorName: username, text: text.trim(), votes: 0}];
+    const next = [...(p.comments || []), {authorId: uid, authorName: username, text: text.trim(), votes: 0, tags}];
     await updateDoc(doc(db, 'cposts', p.id), {comments: next});
     // Let the post author know (in Inbox > Activity)
     if (p.authorId !== uid) {
@@ -227,6 +236,12 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         createdAt: serverTimestamp(),
       });
     }
+    // Let anyone tagged in the comment know
+    tags.forEach(t => { if (t.id !== uid) addDoc(collection(db, 'notifs'), {
+      toId: t.id, kind: 'tag', read: false,
+      text: `${username} tagged you in a comment`,
+      createdAt: serverTimestamp(),
+    }).catch(() => {}); });
     return true;
   }
   // Event RSVP (opt in / opt out)
@@ -312,21 +327,64 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     setChooser({target, groupId, sport});
   }
 
+  // Photos on a post — swipeable carousel; tap to reveal tagged people, tap a tag to open their profile
+  function PostPhotos({p}: any) {
+    const pics: string[] = p.photos && p.photos.length ? p.photos : (p.photo ? [p.photo] : []);
+    const tags: {id: string; name: string}[] = p.tags || [];
+    const [page, setPage] = useState(0);
+    const [showTags, setShowTags] = useState(false);
+    const [w, setW] = useState(WIDTH - 60); // measured on layout for exact paging
+    if (!pics.length) return null;
+    return (
+      <View style={styles.photoPager} onLayout={e => setW(e.nativeEvent.layout.width)}>
+        <ScrollView
+          horizontal pagingEnabled showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={e => setPage(Math.round(e.nativeEvent.contentOffset.x / Math.max(1, w)))}>
+          {pics.map((ph, i) => (
+            <TouchableOpacity key={i} activeOpacity={0.95} onPress={() => tags.length && setShowTags(s => !s)}>
+              <Image source={{uri: ph}} style={[styles.photoPagerImg, {width: w}]} />
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+        {pics.length > 1 && (
+          <View style={styles.photoDots}>
+            {pics.map((_, i) => <View key={i} style={[styles.photoDot, i === page && styles.photoDotOn]} />)}
+          </View>
+        )}
+        {tags.length > 0 && !showTags && (
+          <TouchableOpacity style={styles.tagHintPill} onPress={() => setShowTags(true)}>
+            <Icon name="pricetag" size={12} color="#fff" /><Text style={styles.tagHintText}>{tags.length}</Text>
+          </TouchableOpacity>
+        )}
+        {tags.length > 0 && showTags && (
+          <View style={styles.tagOverlay}>
+            {tags.map(t => (
+              <TouchableOpacity key={t.id} style={styles.tagOverlayChip} onPress={() => { setThreadId(null); setViewUser({id: t.id, name: t.name, sport: ''}); }}>
+                <Text style={styles.tagOverlayChipText}>@{t.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  }
+
   // Reaction control: medals for achievements, up/down votes for everything else
   function Reaction({p}: any) {
     const mv = myVotes[p.id] || 0;
     if (p.kind === 'achievement') {
       return (
         <Btn style={[styles.medalBtn, mv === 1 && styles.medalBtnActive]} onPress={() => votePost(p, 1)} scaleTo={1.1}>
-          <Text style={[styles.medalText, mv === 1 && {color: GOLD_TEXT}]}>🏅 {p.votes || 0}</Text>
+          <Icon name="medal" size={17} color={mv === 1 ? GOLD : TEXT2} />
+          <Text style={[styles.medalText, mv === 1 && {color: GOLD_TEXT}]}>{p.votes || 0}</Text>
         </Btn>
       );
     }
     return (
       <View style={styles.votePill}>
-        <TouchableOpacity onPress={() => votePost(p, 1)}><Text style={[styles.voteArrow, mv === 1 && {color: '#E8590C'}]}>▲</Text></TouchableOpacity>
+        <TouchableOpacity style={{paddingHorizontal: 7, paddingVertical: 4}} onPress={() => votePost(p, 1)}><Icon name="arrow-up" size={18} color={mv === 1 ? '#E8590C' : TEXT2} /></TouchableOpacity>
         <Text style={styles.voteScore}>{p.votes || 0}</Text>
-        <TouchableOpacity onPress={() => votePost(p, -1)}><Text style={[styles.voteArrow, mv === -1 && {color: '#4263EB'}]}>▼</Text></TouchableOpacity>
+        <TouchableOpacity style={{paddingHorizontal: 7, paddingVertical: 4}} onPress={() => votePost(p, -1)}><Icon name="arrow-down" size={18} color={mv === -1 ? '#4263EB' : TEXT2} /></TouchableOpacity>
       </View>
     );
   }
@@ -338,11 +396,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         {p.pinned && <View style={styles.pinBadge}><Text style={styles.pinBadgeText}>PINNED</Text></View>}
         {!!p.repostFrom && <Text style={styles.repostLabel}>⟳ {p.authorName} reposted{p.repostFrom !== p.authorName ? ` from ${p.repostFrom}` : ''}</Text>}
         {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>ANNOUNCEMENT</Text></View>}
-        {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>🏅 ACHIEVEMENT</Text></View>}
+        {p.kind === 'achievement' && <View style={styles.starBadge}><Icon name="medal" size={12} color={GOLD_DARK} /><Text style={styles.starBadgeText}>ACHIEVEMENT</Text></View>}
         {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>QUESTION</Text></View>}
         <View style={styles.cardHead}>
           <TouchableOpacity onPress={() => setViewUser({id: p.authorId, name: p.authorName, sport: p.sport})}>
-            <Avatar name={p.authorName} size={40} photo={p.authorId === uid ? profile.photo : null} />
+            <Avatar name={p.authorName} size={40} photo={photoOf(p.authorId)} />
           </TouchableOpacity>
           <View style={{flex: 1, marginLeft: 10}}>
             <Text style={styles.author}>{p.authorName}</Text>
@@ -351,16 +409,27 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           <SportTag id={p.sport} />
         </View>
         {!!p.text && <Text style={styles.body}>{p.text}</Text>}
-        {!!p.photo && <Image source={{uri: p.photo}} style={styles.postImg} />}
+        {(p.tags || []).length > 0 && (
+          <View style={styles.inlineTagRow}>
+            <Text style={styles.meta}>with </Text>
+            {(p.tags || []).map((t: any, i: number) => (
+              <TouchableOpacity key={t.id} onPress={() => setViewUser({id: t.id, name: t.name, sport: ''})}>
+                <Text style={styles.inlineTag}>@{t.name}{i < (p.tags.length - 1) ? ', ' : ''}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+        <PostPhotos p={p} />
         <View style={styles.actions}>
           <Reaction p={p} />
-          <Btn style={styles.actPill} onPress={onOpen} scaleTo={1.1}><Text style={styles.actPillText}>{(p.comments || []).length} comments</Text></Btn>
-          <Btn style={styles.actPill} onPress={() => repost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Repost</Text></Btn>
-          <Btn style={styles.actPill} onPress={() => setSharePost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Share</Text></Btn>
-          <Btn style={[styles.actPill, isPostSaved(p.id) && {backgroundColor: GOLD_LIGHT}]} onPress={() => toggleSavePost(p)} scaleTo={1.1}><Text style={[styles.actPillText, isPostSaved(p.id) && {color: GOLD_TEXT}]}>{isPostSaved(p.id) ? 'Saved' : 'Save'}</Text></Btn>
-          {canPin && <Btn style={styles.actPill} onPress={() => togglePin(p)} scaleTo={1.1}><Text style={styles.actPillText}>{p.pinned ? 'Unpin' : 'Pin'}</Text></Btn>}
-          {p.authorId === uid && <Btn style={styles.actPill} onPress={() => deletePost(p)} scaleTo={1.1}><Text style={[styles.actPillText, {color: '#C0506E'}]}>Delete</Text></Btn>}
-          {p.authorId !== uid && onReport && <Btn style={styles.actPill} onPress={() => onReport({type: 'post', targetId: p.id, targetText: p.text || '', reportedId: p.authorId, reportedName: p.authorName})} scaleTo={1.1}><Text style={styles.actPillText}>Report</Text></Btn>}
+          <Btn style={styles.iconBtn} onPress={onOpen} scaleTo={1.15}><Icon name="chatbubble-outline" size={19} color={TEXT2} /><Text style={styles.iconCount}>{(p.comments || []).length}</Text></Btn>
+          <Btn style={styles.iconBtn} onPress={() => repost(p)} scaleTo={1.15}><Icon name="repeat-outline" size={20} color={TEXT2} /></Btn>
+          <Btn style={styles.iconBtn} onPress={() => setSharePost(p)} scaleTo={1.15}><Icon name="arrow-redo-outline" size={19} color={TEXT2} /></Btn>
+          <Btn style={styles.iconBtn} onPress={() => toggleSavePost(p)} scaleTo={1.15}><Icon name={isPostSaved(p.id) ? 'bookmark' : 'bookmark-outline'} size={19} color={isPostSaved(p.id) ? GOLD : TEXT2} /></Btn>
+          <View style={{flex: 1}} />
+          {canPin && <Btn style={styles.iconBtn} onPress={() => togglePin(p)} scaleTo={1.15}><Icon name={p.pinned ? 'pin' : 'pin-outline'} size={19} color={p.pinned ? GOLD : TEXT2} /></Btn>}
+          {p.authorId === uid && <Btn style={styles.iconBtn} onPress={() => deletePost(p)} scaleTo={1.15}><Icon name="trash-outline" size={19} color="#C0506E" /></Btn>}
+          {p.authorId !== uid && onReport && <Btn style={styles.iconBtn} onPress={() => onReport({type: 'post', targetId: p.id, targetText: p.text || '', reportedId: p.authorId, reportedName: p.authorName})} scaleTo={1.15}><Icon name="flag-outline" size={18} color={TEXT2} /></Btn>}
         </View>
       </TouchableOpacity>
     );
@@ -379,7 +448,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           <Text style={styles.sectionLabel}>People</Text>
           {people.length ? people.map(u => (
             <TouchableOpacity key={u.id} style={styles.resultRow} onPress={() => setViewUser({id: u.id, name: u.username, sport: u.mainSport || ''})}>
-              <Avatar name={u.username} size={42} photo={u.id === uid ? profile.photo : null} />
+              <Avatar name={u.username} size={42} photo={photoOf(u.id)} />
               <Text style={styles.resultName}>{u.username}{u.id === uid ? '  (You)' : ''}</Text>
             </TouchableOpacity>
           )) : <Text style={styles.noResult}>No people found</Text>}
@@ -452,8 +521,12 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         <Text style={styles.sectionLabel}>Discussion groups</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 16}}>
           <TouchableOpacity style={styles.createGroupCard} onPress={() => setCreateOpen(true)}>
-            <Text style={{fontSize: 22, color: GOLD}}>＋</Text>
+            <Icon name="add" size={22} color={GOLD} />
             <Text style={styles.createGroupText}>Create group</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.joinGroupCard} onPress={() => setJoinOpen(true)}>
+            <Icon name="key-outline" size={20} color="#185FA5" />
+            <Text style={styles.joinGroupText}>Join with code</Text>
           </TouchableOpacity>
           {[...groups].sort((a, b) => memberCount(b) - memberCount(a)).map(g => (
             <TouchableOpacity key={g.id} style={styles.groupCard} onPress={() => openGroup(g)}>
@@ -498,16 +571,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
   // ---------- GROUPS ----------
   async function openGroup(g: any) {
-    if (g.priv && !isJoined(g)) {
-      if ((Alert as any).prompt) {
-        (Alert as any).prompt('Private group', `Enter the join code for "${g.name}":`, async (code?: string) => {
-          if (code == null) return;
-          if (code.trim().toUpperCase() !== g.code) { Alert.alert('Incorrect code', 'You need the right code to join.'); return; }
-          await joinGroup(g); setGroupId(g.id);
-        });
-      } else { Alert.alert('Private group', 'This group needs a code to join.'); }
-      return;
-    }
+    // Private groups you haven't joined need the code — open the in-app Join sheet
+    if (g.priv && !isJoined(g)) { setJoinOpen(true); return; }
     setGroupId(g.id);
   }
   async function joinGroup(g: any) {
@@ -584,7 +649,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
                   <Text style={[styles.infoTitle, {marginTop: 12, marginBottom: 6}]}>MEMBERS</Text>
                   {(g.roster || []).map((m: any) => (
                     <View key={m.id} style={styles.memberRow}>
-                      <Avatar name={m.name} size={30} photo={m.id === uid ? profile.photo : null} />
+                      <Avatar name={m.name} size={30} photo={photoOf(m.id)} />
                       <Text style={{flex: 1, marginLeft: 8, fontSize: 13, color: TEXT}}>{m.name}{m.id === g.creatorId ? ' · moderator' : ''}</Text>
                       {m.id !== g.creatorId && <TouchableOpacity onPress={() => removeMember(g, m.id)}><Text style={{color: '#B23', fontSize: 12, fontWeight: '600'}}>Remove</Text></TouchableOpacity>}
                     </View>
@@ -630,6 +695,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   function ThreadView() {
     const p = thread; if (!p) return null;
     const [ct, setCt] = useState('');
+    const [ctags, setCtags] = useState<{id: string; name: string}[]>([]);
+    const [ctagOpen, setCtagOpen] = useState(false);
+    const [ctagQuery, setCtagQuery] = useState('');
+    const toggleCtag = (u: any) => setCtags(prev => prev.some(t => t.id === u.id) ? prev.filter(t => t.id !== u.id) : [...prev, {id: u.id, name: u.username}]);
+    const ctagOptions = users.filter(u => u.id !== uid && !blocked[u.id] && (u.username || '').toLowerCase().includes(ctagQuery.trim().toLowerCase()));
+    async function sendComment() {
+      if (await addCommentTo(p, ct, ctags)) { setCt(''); setCtags([]); setCtagOpen(false); setCtagQuery(''); }
+    }
     const sorted = [...(p.comments || [])].filter((cm: any) => !blocked[cm.authorId]).sort((a, b) => (b.votes || 0) - (a.votes || 0));
     return (
       <Modal visible animationType="slide" onRequestClose={() => setThreadId(null)}>
@@ -637,33 +710,80 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           <View style={styles.topbar}><TouchableOpacity style={styles.backBtn} onPress={() => setThreadId(null)}><Text style={styles.backText}>← Back</Text></TouchableOpacity></View>
           <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 60}}>
             <View style={styles.pageCard}>
-              {p.kind === 'achievement' && <View style={styles.starBadge}><Text style={styles.starBadgeText}>🏅 Achievement</Text></View>}
+              {p.kind === 'achievement' && <View style={styles.starBadge}><Icon name="medal" size={12} color={GOLD_DARK} /><Text style={styles.starBadgeText}>Achievement</Text></View>}
               {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>Question</Text></View>}
               <View style={styles.cardHead}>
-                <Avatar name={p.authorName} size={40} photo={p.authorId === uid ? profile.photo : null} />
+                <Avatar name={p.authorName} size={40} photo={photoOf(p.authorId)} />
                 <View style={{flex: 1, marginLeft: 10}}><Text style={styles.author}>{p.authorName}</Text><Text style={styles.meta}>{timeAgo(p.createdAt)} · {sportOf(p.sport)?.label}</Text></View>
               </View>
               {!!p.text && <Text style={[styles.body, {fontSize: 16}]}>{p.text}</Text>}
-              {!!p.photo && <Image source={{uri: p.photo}} style={styles.postImg} />}
+              {(p.tags || []).length > 0 && (
+                <View style={styles.inlineTagRow}>
+                  <Text style={styles.meta}>with </Text>
+                  {(p.tags || []).map((t: any, i: number) => (
+                    <TouchableOpacity key={t.id} onPress={() => { setThreadId(null); setViewUser({id: t.id, name: t.name, sport: ''}); }}>
+                      <Text style={styles.inlineTag}>@{t.name}{i < (p.tags.length - 1) ? ', ' : ''}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              <PostPhotos p={p} />
               <View style={styles.actions}>
                 <Reaction p={p} />
-                <View style={styles.actPill}><Text style={styles.actPillText}>{(p.comments || []).length} comments</Text></View>
-                <Btn style={styles.actPill} onPress={() => repost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Repost</Text></Btn>
-                <Btn style={styles.actPill} onPress={() => setSharePost(p)} scaleTo={1.1}><Text style={styles.actPillText}>Share</Text></Btn>
-                {p.authorId === uid && <Btn style={styles.actPill} onPress={() => deletePost(p)} scaleTo={1.1}><Text style={[styles.actPillText, {color: '#C0506E'}]}>Delete</Text></Btn>}
-                {p.authorId !== uid && onReport && <Btn style={styles.actPill} onPress={() => onReport({type: 'post', targetId: p.id, targetText: p.text || '', reportedId: p.authorId, reportedName: p.authorName})} scaleTo={1.1}><Text style={styles.actPillText}>Report</Text></Btn>}
+                <View style={styles.iconBtn}><Icon name="chatbubble-outline" size={19} color={TEXT2} /><Text style={styles.iconCount}>{(p.comments || []).length}</Text></View>
+                <Btn style={styles.iconBtn} onPress={() => repost(p)} scaleTo={1.15}><Icon name="repeat-outline" size={20} color={TEXT2} /></Btn>
+                <Btn style={styles.iconBtn} onPress={() => setSharePost(p)} scaleTo={1.15}><Icon name="arrow-redo-outline" size={19} color={TEXT2} /></Btn>
+                <Btn style={styles.iconBtn} onPress={() => toggleSavePost(p)} scaleTo={1.15}><Icon name={isPostSaved(p.id) ? 'bookmark' : 'bookmark-outline'} size={19} color={isPostSaved(p.id) ? GOLD : TEXT2} /></Btn>
+                <View style={{flex: 1}} />
+                {p.authorId === uid && <Btn style={styles.iconBtn} onPress={() => deletePost(p)} scaleTo={1.15}><Icon name="trash-outline" size={19} color="#C0506E" /></Btn>}
+                {p.authorId !== uid && onReport && <Btn style={styles.iconBtn} onPress={() => onReport({type: 'post', targetId: p.id, targetText: p.text || '', reportedId: p.authorId, reportedName: p.authorName})} scaleTo={1.15}><Icon name="flag-outline" size={18} color={TEXT2} /></Btn>}
               </View>
               <View style={styles.commentRow}>
                 <TextInput style={styles.commentInput} placeholder="Add a comment…" placeholderTextColor={TEXT3} value={ct} onChangeText={setCt} />
-                <TouchableOpacity style={styles.commentSend} onPress={async () => { if (await addCommentTo(p, ct)) setCt(''); }}><Text style={{color: '#fff', fontWeight: '600'}}>Send</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.commentTagBtn} onPress={() => setCtagOpen(o => !o)}><Icon name="at" size={20} color={ctags.length ? GOLD : TEXT2} /></TouchableOpacity>
+                <TouchableOpacity style={styles.commentSend} onPress={sendComment}><Text style={{color: '#fff', fontWeight: '600'}}>Send</Text></TouchableOpacity>
               </View>
+              {ctags.length > 0 && (
+                <View style={[styles.chipWrap, {marginTop: 8}]}>
+                  {ctags.map(t => (
+                    <TouchableOpacity key={t.id} style={styles.sportChip} onPress={() => toggleCtag({id: t.id, username: t.name})}>
+                      <Text style={styles.sportChipText}>@{t.name}</Text><Text style={styles.sportChipX}>  ✕</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {ctagOpen && (
+                <View style={styles.dropList}>
+                  <TextInput style={[styles.input, {margin: 8}]} placeholder="Search people to tag…" placeholderTextColor={TEXT3} value={ctagQuery} onChangeText={setCtagQuery} />
+                  <ScrollView style={{maxHeight: 180}} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                    {ctagOptions.length ? ctagOptions.map(u => {
+                      const on = ctags.some(t => t.id === u.id);
+                      return (
+                        <TouchableOpacity key={u.id} style={[styles.dropItem, on && styles.dropItemOn]} onPress={() => toggleCtag(u)}>
+                          <Text style={[styles.dropItemText, on && {color: GOLD_TEXT, fontWeight: '600'}]}>@{u.username}</Text>
+                          {on && <Icon name="checkmark" size={16} color={GOLD_TEXT} />}
+                        </TouchableOpacity>
+                      );
+                    }) : <Text style={{color: TEXT2, padding: 12}}>No people found</Text>}
+                  </ScrollView>
+                </View>
+              )}
               <Text style={[styles.sectionLabel, {marginTop: 14}]}>{(p.comments || []).length} Comments · top</Text>
               {sorted.map((c, i) => (
                 <View key={i} style={styles.tcomment}>
-                  <Avatar name={c.authorName} size={32} photo={c.authorId === uid ? profile.photo : null} />
+                  <Avatar name={c.authorName} size={32} photo={photoOf(c.authorId)} />
                   <View style={{flex: 1, marginLeft: 10}}>
                     <Text style={styles.author}>{c.authorName}</Text>
                     <Text style={styles.body}>{c.text}</Text>
+                    {(c.tags || []).length > 0 && (
+                      <View style={[styles.inlineTagRow, {marginTop: 4, marginBottom: 0}]}>
+                        {(c.tags || []).map((t: any, j: number) => (
+                          <TouchableOpacity key={t.id} onPress={() => { setThreadId(null); setViewUser({id: t.id, name: t.name, sport: ''}); }}>
+                            <Text style={styles.inlineTag}>@{t.name}{j < (c.tags.length - 1) ? ', ' : ''}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
                     {c.authorId === uid && <TouchableOpacity onPress={() => deleteComment(p, c)}><Text style={{color: '#B23', fontSize: 12, fontWeight: '600'}}>Delete</Text></TouchableOpacity>}
                   </View>
                 </View>
@@ -679,39 +799,95 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   function Composer() {
     const [text, setText] = useState('');
     const [sport, setSport] = useState(composer?.sport || 'football');
-    const [photo, setPhoto] = useState<string | null>(null);
-    const [busy, setBusy] = useState(false);
+    const [photos, setPhotos] = useState<string[]>([]);
+    const [tags, setTags] = useState<{id: string; name: string}[]>([]);
+    const [tagOpen, setTagOpen] = useState(false);
+    const [tagQuery, setTagQuery] = useState('');
     const kind = composer.kind || 'post';
     const kindTitle = kind === 'question' ? 'Ask a question' : kind === 'achievement' ? 'Share an achievement' : (composer.target === 'group' ? 'Post to group' : 'Create a post');
     const kindPh = kind === 'question' ? "What's your question?" : kind === 'achievement' ? 'Share your achievement!' : 'Share news, a tip, a result…';
     function pick() {
-      launchImageLibrary({mediaType: 'photo', maxWidth: 1000, maxHeight: 1000, quality: 0.7, includeBase64: true}, (res: any) => {
-        const a = res.assets?.[0]; if (a?.base64) setPhoto(`data:${a.type || 'image/jpeg'};base64,${a.base64}`);
+      const remaining = 4 - photos.length;
+      if (remaining <= 0) { setToast('You can add up to 4 photos'); return; }
+      launchImageLibrary({mediaType: 'photo', maxWidth: 1000, maxHeight: 1000, quality: 0.7, includeBase64: true, selectionLimit: remaining}, (res: any) => {
+        const added = (res.assets || []).filter((a: any) => a?.base64).map((a: any) => `data:${a.type || 'image/jpeg'};base64,${a.base64}`);
+        if (added.length) setPhotos(prev => [...prev, ...added].slice(0, 4));
       });
     }
+    const toggleTag = (u: any) => setTags(prev => prev.some(t => t.id === u.id) ? prev.filter(t => t.id !== u.id) : [...prev, {id: u.id, name: u.username}]);
+    const tagOptions = users.filter(u => u.id !== uid && !blocked[u.id] && (u.username || '').toLowerCase().includes(tagQuery.trim().toLowerCase()));
     function post() {
-      if (!text.trim() && !photo) { setToast('Write a message or add a photo'); return; }
+      if (!text.trim() && !photos.length) { setToast('Write a message or add a photo'); return; }
       if (!clean(text)) return;
       // Close immediately and write in the background — never block the app on the network
       setComposer(null);
       setToast('Posted');
       addDoc(collection(db, 'cposts'), {
         authorId: uid, authorName: username, sport, groupId: composer.target === 'group' ? composer.groupId : null,
-        announcement: false, kind, text: text.trim(), photo, votes: 0, comments: [], createdAt: serverTimestamp(),
+        announcement: false, kind, text: text.trim(), photo: photos[0] || null, photos, tags, votes: 0, comments: [], createdAt: serverTimestamp(),
       }).catch(() => setToast("Couldn't post — check your connection"));
+      // Notify anyone tagged
+      tags.forEach(t => addDoc(collection(db, 'notifs'), {
+        toId: t.id, kind: 'tag', read: false,
+        text: `${username} tagged you in a ${kind === 'achievement' ? 'achievement' : kind === 'question' ? 'question' : 'post'}`,
+        createdAt: serverTimestamp(),
+      }).catch(() => {}));
     }
     return (
       <Modal visible animationType="slide" transparent onRequestClose={() => setComposer(null)}>
         <View style={styles.overlay}><View style={styles.sheet}>
           <View style={styles.sheetHead}><Text style={styles.sheetTitle}>{kindTitle}</Text><TouchableOpacity onPress={() => setComposer(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
-          <ScrollView>
+          <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={styles.label}>Sport</Text>
             <SportPicker value={sport} onChange={setSport} options={SPORTS_ABC} colors={c} small />
-            <Text style={styles.label}>Photo (optional)</Text>
-            <TouchableOpacity style={styles.photoDrop} onPress={pick}>{photo ? <Image source={{uri: photo}} style={{width: '100%', height: '100%', borderRadius: 8}} /> : <Text style={{color: TEXT2}}>Add a photo</Text>}</TouchableOpacity>
+
+            <Text style={styles.label}>Photos ({photos.length}/4)</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 4}}>
+              {photos.map((ph, i) => (
+                <View key={i} style={styles.composerThumbWrap}>
+                  <Image source={{uri: ph}} style={styles.composerThumb} />
+                  <TouchableOpacity style={styles.composerThumbX} onPress={() => setPhotos(prev => prev.filter((_, j) => j !== i))}><Icon name="close" size={13} color="#fff" /></TouchableOpacity>
+                </View>
+              ))}
+              {photos.length < 4 && (
+                <TouchableOpacity style={styles.composerAddTile} onPress={pick}><Icon name="camera-outline" size={22} color={GOLD} /></TouchableOpacity>
+              )}
+            </ScrollView>
+
+            <Text style={styles.label}>Tag people</Text>
+            {tags.length > 0 && (
+              <View style={styles.chipWrap}>
+                {tags.map(t => (
+                  <TouchableOpacity key={t.id} style={styles.sportChip} onPress={() => toggleTag({id: t.id, username: t.name})}>
+                    <Text style={styles.sportChipText}>@{t.name}</Text><Text style={styles.sportChipX}>  ✕</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            <TouchableOpacity style={styles.dropBtn} onPress={() => setTagOpen(o => !o)}>
+              <Text style={styles.dropBtnText}>{tags.length ? 'Tag more people' : 'Tag people'}</Text>
+              <Icon name={tagOpen ? 'chevron-up' : 'chevron-down'} size={16} color={TEXT2} />
+            </TouchableOpacity>
+            {tagOpen && (
+              <View style={styles.dropList}>
+                <TextInput style={[styles.input, {margin: 8}]} placeholder="Search people…" placeholderTextColor={TEXT3} value={tagQuery} onChangeText={setTagQuery} />
+                <ScrollView style={{maxHeight: 200}} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {tagOptions.length ? tagOptions.map(u => {
+                    const on = tags.some(t => t.id === u.id);
+                    return (
+                      <TouchableOpacity key={u.id} style={[styles.dropItem, on && styles.dropItemOn]} onPress={() => toggleTag(u)}>
+                        <Text style={[styles.dropItemText, on && {color: GOLD_TEXT, fontWeight: '600'}]}>@{u.username}</Text>
+                        {on && <Icon name="checkmark" size={16} color={GOLD_TEXT} />}
+                      </TouchableOpacity>
+                    );
+                  }) : <Text style={{color: TEXT2, padding: 12}}>No people found</Text>}
+                </ScrollView>
+              </View>
+            )}
+
             <Text style={styles.label}>{kind === 'question' ? 'Your question' : kind === 'achievement' ? 'Your achievement' : 'Description'}</Text>
             <TextInput style={styles.textArea} multiline placeholder={kindPh} placeholderTextColor={TEXT3} value={text} onChangeText={setText} />
-            <Btn style={styles.primaryBtn} onPress={post} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Post</Text>}</Btn>
+            <Btn style={styles.primaryBtn} onPress={post}><Text style={styles.primaryBtnText}>Post</Text></Btn>
           </ScrollView>
         </View></View>
       </Modal>
@@ -762,6 +938,33 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     );
   }
 
+  // ---------- JOIN A GROUP (private code) ----------
+  function JoinGroup() {
+    const [code, setCode] = useState('');
+    function join() {
+      const entered = code.trim().toUpperCase();
+      if (!entered) { setToast('Enter a join code'); return; }
+      const match = groups.find(g => g.priv && (g.code || '').toUpperCase() === entered);
+      if (!match) { setToast('No private group matches that code'); return; }
+      setJoinOpen(false);
+      if (!isJoined(match)) joinGroup(match);
+      setTimeout(() => setGroupId(match.id), 350);
+      setToast(`Joined ${match.name}`);
+    }
+    return (
+      <Modal visible animationType="slide" transparent onRequestClose={() => setJoinOpen(false)}>
+        <View style={styles.overlay}><View style={styles.sheet}>
+          <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Join a private group</Text><TouchableOpacity onPress={() => setJoinOpen(false)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+          <View style={styles.joinKeyWrap}><Icon name="key" size={26} color="#185FA5" /></View>
+          <Text style={[styles.body, {textAlign: 'center', marginBottom: 4}]}>Enter the code the group owner gave you.</Text>
+          <Text style={[styles.meta, {textAlign: 'center', marginBottom: 12}]}>Public groups don't need a code — just tap Join on them.</Text>
+          <TextInput style={styles.joinCodeInput} placeholder="e.g. FOOTY2026" placeholderTextColor={TEXT3} autoCapitalize="characters" value={code} onChangeText={setCode} />
+          <Btn style={styles.joinBlueBtn} onPress={join}><Text style={styles.primaryBtnText}>Join group</Text></Btn>
+        </View></View>
+      </Modal>
+    );
+  }
+
   // ---------- CREATE EVENT (moderator) ----------
   function CreateEvent() {
     const g = eventGroup; if (!g) return null;
@@ -803,7 +1006,6 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   // ---------- PROFILE ----------
   function ProfileScreen() {
     const myPosts = posts.filter(p => p.authorId === uid && !p.groupId && !p.announcement);
-    const replies = posts.filter(p => (p.comments || []).some((c: any) => c.authorId === uid));
     const joined = groups.filter(g => isJoined(g));
     const mySports = profile.sports && profile.sports.length ? profile.sports : (profile.sport ? [profile.sport] : []);
     return (
@@ -845,13 +1047,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
         <View style={styles.profileTabs}>
           <TouchableOpacity style={[styles.pTab, profileTab === 'posts' && styles.pTabActive]} onPress={() => setProfileTab('posts')}><Text style={[styles.pTabText, profileTab === 'posts' && {color: GOLD}]}>Posts</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.pTab, profileTab === 'replies' && styles.pTabActive]} onPress={() => setProfileTab('replies')}><Text style={[styles.pTabText, profileTab === 'replies' && {color: GOLD}]}>Replies</Text></TouchableOpacity>
           <TouchableOpacity style={[styles.pTab, profileTab === 'saved' && styles.pTabActive]} onPress={() => setProfileTab('saved')}><Text style={[styles.pTabText, profileTab === 'saved' && {color: GOLD}]}>Saved</Text></TouchableOpacity>
         </View>
         {profileTab === 'posts'
           ? (myPosts.length ? myPosts.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} />) : <Text style={{color: TEXT2, textAlign: 'center', padding: 24}}>No posts yet. Tap “New post”.</Text>)
-          : profileTab === 'replies'
-          ? (replies.length ? replies.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} />) : <Text style={{color: TEXT2, textAlign: 'center', padding: 24}}>No replies yet.</Text>)
           : (() => {
               const savedList = posts.filter(p => isPostSaved(p.id));
               return savedList.length ? savedList.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} />) : <Text style={{color: TEXT2, textAlign: 'center', padding: 24}}>No saved posts yet — tap “Save” on any post.</Text>;
@@ -890,7 +1089,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     function save() {
       const sport = sports[0] || '';
       setProfile({sport, sports, bio: bio.trim(), photo});
-      setDoc(doc(db, 'users', uid), {sports, mainSport: sport || null}, {merge: true});
+      setDoc(doc(db, 'users', uid), {sports, mainSport: sport || null, avatarPhoto: photo || null, bio: bio.trim()}, {merge: true});
       setEditOpen(false);
       setToast('Profile saved');
     }
@@ -961,7 +1160,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 50}}>
             <View style={styles.pageCard}>
               <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                <Avatar name={u.name} size={72} photo={isMe ? profile.photo : null} />
+                <Avatar name={u.name} size={72} photo={photoOf(u.id)} />
                 <View style={{flexDirection: 'row', flex: 1, justifyContent: 'space-around'}}>
                   <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{theirPosts.length}</Text><Text style={styles.meta}>Posts</Text></View>
                   <View style={{alignItems: 'center'}}><Text style={styles.statNum}>{theirFollowers}</Text><Text style={styles.meta}>Followers</Text></View>
@@ -1029,6 +1228,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       {group && <GroupPage />}
       {composer && <Composer />}
       {createOpen && <CreateGroup />}
+      {joinOpen && <JoinGroup />}
       {eventGroup && <CreateEvent />}
       {editOpen && <EditProfile />}
 
@@ -1067,7 +1267,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               ).map(person => (
                 <View key={person.docId} style={styles.shareRow}>
                   <TouchableOpacity style={{flexDirection: 'row', alignItems: 'center', flex: 1}} onPress={() => { setListView(null); setTimeout(() => setViewUser({id: person.id, name: person.name, sport: ''}), 350); }}>
-                    <Avatar name={person.name} size={38} photo={person.id === uid ? profile.photo : null} />
+                    <Avatar name={person.name} size={38} photo={photoOf(person.id)} />
                     <Text style={[styles.shareRowText, {marginLeft: 10}]}>{person.name}</Text>
                   </TouchableOpacity>
                   <Btn style={[styles.smallBtn, styles.smallBtnAlt, {paddingVertical: 6, paddingHorizontal: 14}]} onPress={() => removeFollowDoc(person.docId)}>
@@ -1166,7 +1366,25 @@ function makeStyles(c: any) {
   meta: {fontSize: 12, color: TEXT2},
   body: {fontSize: 14, color: TEXT, lineHeight: 21, marginBottom: 12},
   postImg: {width: '100%', height: 220, borderRadius: 8, marginBottom: 12, resizeMode: 'cover'},
-  actions: {flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap'},
+  composerThumbWrap: {width: 90, height: 90, marginRight: 8, borderRadius: 10, overflow: 'hidden', position: 'relative'},
+  composerThumb: {width: 90, height: 90, borderRadius: 10},
+  composerThumbX: {position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center'},
+  composerAddTile: {width: 90, height: 90, borderRadius: 10, borderWidth: 1, borderColor: BORDER, borderStyle: 'dashed', backgroundColor: BG2, alignItems: 'center', justifyContent: 'center'},
+  photoPager: {width: '100%', height: 240, borderRadius: 10, marginBottom: 12, position: 'relative'},
+  photoPagerImg: {height: 240, borderRadius: 10, resizeMode: 'cover'},
+  photoDots: {position: 'absolute', bottom: 10, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6},
+  photoDot: {width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.6)'},
+  photoDotOn: {backgroundColor: '#fff'},
+  tagHintPill: {position: 'absolute', bottom: 10, left: 10, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 14, paddingHorizontal: 9, paddingVertical: 5},
+  tagHintText: {color: '#fff', fontSize: 11, fontWeight: '600'},
+  tagOverlay: {position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', padding: 10, borderBottomLeftRadius: 10, borderBottomRightRadius: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 8},
+  tagOverlayChip: {backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5},
+  tagOverlayChipText: {color: '#111', fontSize: 12, fontWeight: '600'},
+  inlineTagRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8},
+  inlineTag: {color: '#185FA5', fontSize: 13, fontWeight: '600'},
+  actions: {flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4},
+  iconBtn: {flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 16},
+  iconCount: {fontSize: 13, fontWeight: '600', color: TEXT2},
   repostLabel: {fontSize: 12, color: TEXT2, fontWeight: '600', marginBottom: 8},
   shareOpt: {paddingVertical: 14, borderBottomWidth: 0.5, borderBottomColor: BORDER},
   shareOptText: {fontSize: 15, fontWeight: '500', color: TEXT},
@@ -1182,6 +1400,11 @@ function makeStyles(c: any) {
   sectionLabel: {fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4, color: TEXT3, marginBottom: 10},
   createGroupCard: {width: 120, backgroundColor: BG, borderWidth: 1, borderColor: GOLD, borderStyle: 'dashed', borderRadius: 18, padding: 12, marginRight: 10, alignItems: 'center', justifyContent: 'center'},
   createGroupText: {fontSize: 12, fontWeight: '600', color: GOLD, marginTop: 4},
+  joinGroupCard: {width: 120, backgroundColor: BG, borderWidth: 1, borderColor: '#378ADD', borderStyle: 'dashed', borderRadius: 18, padding: 12, marginRight: 10, alignItems: 'center', justifyContent: 'center'},
+  joinGroupText: {fontSize: 12, fontWeight: '600', color: '#185FA5', marginTop: 4},
+  joinKeyWrap: {alignSelf: 'center', width: 56, height: 56, borderRadius: 28, backgroundColor: '#E6F1FB', alignItems: 'center', justifyContent: 'center', marginBottom: 12, marginTop: 4},
+  joinCodeInput: {borderWidth: 1, borderColor: '#378ADD', borderRadius: 10, padding: 14, fontSize: 18, fontWeight: '700', letterSpacing: 2, textAlign: 'center', color: TEXT, backgroundColor: BG2},
+  joinBlueBtn: {backgroundColor: '#185FA5', borderRadius: 16, paddingVertical: 15, alignItems: 'center', marginTop: 16},
   groupCard: {width: 152, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 18, padding: 12, marginRight: 10},
   groupCardName: {fontSize: 13, fontWeight: '600', color: TEXT, marginTop: 8},
   groupCardMembers: {fontSize: 11, color: TEXT2, marginBottom: 8},
@@ -1210,6 +1433,7 @@ function makeStyles(c: any) {
   announceHead: {fontSize: 11, fontWeight: '700', color: GOLD_DARK, marginBottom: 5},
   commentRow: {flexDirection: 'row', gap: 8, marginTop: 8, alignItems: 'center'},
   commentInput: {flex: 1, borderWidth: 0.5, borderColor: BORDER, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, fontSize: 14, color: TEXT},
+  commentTagBtn: {width: 38, height: 38, borderRadius: 19, borderWidth: 0.5, borderColor: BORDER, alignItems: 'center', justifyContent: 'center'},
   commentSend: {backgroundColor: GOLD, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9},
   tcomment: {flexDirection: 'row', paddingVertical: 12, borderTopWidth: 0.5, borderTopColor: BORDER},
   overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end'},
@@ -1240,11 +1464,11 @@ function makeStyles(c: any) {
   primaryBtnText: {color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.3},
   annBadge: {backgroundColor: GOLD_LIGHT, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
   annBadgeText: {fontSize: 11, fontWeight: '700', color: GOLD_DARK},
-  starBadge: {backgroundColor: '#FFF3D6', borderWidth: 0.5, borderColor: '#E3B948', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
+  starBadge: {flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF3D6', borderWidth: 0.5, borderColor: '#E3B948', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
   starBadgeText: {fontSize: 11, fontWeight: '700', color: GOLD_DARK},
   qBadge: {backgroundColor: '#E6F1FB', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8},
   qBadgeText: {fontSize: 11, fontWeight: '700', color: '#0C447C'},
-  medalBtn: {backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 0.5, borderColor: BG2},
+  medalBtn: {flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: BG2, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, borderWidth: 0.5, borderColor: BG2},
   medalBtnActive: {backgroundColor: GOLD_LIGHT, borderColor: GOLD},
   medalText: {fontSize: 14, fontWeight: '700', color: TEXT},
   cardPinned: {borderColor: GOLD, borderWidth: 1},
