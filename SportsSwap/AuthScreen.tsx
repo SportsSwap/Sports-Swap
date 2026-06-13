@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, SafeAreaView, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { lightColors } from './theme';
@@ -20,6 +20,18 @@ export default function AuthScreen({colors}: any) {
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  async function handleReset() {
+    if (!email) { setError('Enter your email above first, then tap "Forgot password".'); return; }
+    setError(''); setNotice('');
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setNotice('Password reset email sent. Check your inbox (and spam).');
+    } catch (e: any) {
+      setError(friendlyError(e.code));
+    }
+  }
 
   async function handleSignUp() {
     if (!email || !password || !username) {
@@ -129,6 +141,13 @@ export default function AuthScreen({colors}: any) {
             />
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
+            {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+
+            {mode === 'signin' && (
+              <TouchableOpacity onPress={handleReset} style={{alignSelf: 'flex-end', marginTop: 10}}>
+                <Text style={styles.forgot}>Forgot password?</Text>
+              </TouchableOpacity>
+            )}
 
             {mode === 'signup' && (
               <Text style={styles.termsText}>
@@ -178,6 +197,8 @@ function makeStyles(c: any) {
   label: {fontSize: 12, color: TEXT2, marginBottom: 6, marginTop: 14},
   input: {borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, padding: 12, fontSize: 14, color: TEXT, backgroundColor: BG},
   error: {fontSize: 13, color: '#D4537E', marginTop: 12, textAlign: 'center'},
+  notice: {fontSize: 13, color: '#1D9E75', marginTop: 12, textAlign: 'center'},
+  forgot: {fontSize: 13, color: GOLD_TEXT, fontWeight: '600'},
   termsText: {fontSize: 11, color: TEXT3, lineHeight: 16, marginTop: 14, textAlign: 'center'},
   btn: {backgroundColor: GOLD, borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 20},
   btnText: {color: 'white', fontSize: 15, fontWeight: '600'},

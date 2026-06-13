@@ -129,6 +129,8 @@ export default function App() {
   const [activeChat, setActiveChat] = useState<any>(null);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
+  const [offerFor, setOfferFor] = useState<any>(null); // listing being offered on
+  const [offerAmount, setOfferAmount] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
@@ -146,6 +148,7 @@ export default function App() {
   const [newSport, setNewSport] = useState('football');
   const [newLoc, setNewLoc] = useState('');
   const [newCond, setNewCond] = useState('used');
+  const [newDesc, setNewDesc] = useState('');
   const [newPhotos, setNewPhotos] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -365,6 +368,7 @@ export default function App() {
       sport: newSport,
       cond: newCond,
       loc: newLoc || 'Unknown',
+      desc: newDesc.trim(),
       seller: username,
       sellerId: user.uid,
       bg: sport?.bg || '#EAF3DE',
@@ -375,7 +379,7 @@ export default function App() {
     // Close immediately and write in the background — never block the app on the network
     const wasEdit = !!editingId;
     const editId = editingId;
-    setNewTitle(''); setNewPrice(''); setNewLoc(''); setNewPhotos([]); setEditingId(null); setPostOpen(false); setSportDropOpen(false);
+    setNewTitle(''); setNewPrice(''); setNewLoc(''); setNewDesc(''); setNewPhotos([]); setEditingId(null); setPostOpen(false); setSportDropOpen(false);
     setToast(wasEdit ? 'Changes saved' : 'Listing posted');
     const write = wasEdit
       ? updateDoc(doc(db, 'listings', editId!), data)
@@ -390,6 +394,7 @@ export default function App() {
     setNewSport(item.sport);
     setNewCond(item.cond);
     setNewLoc(item.loc === 'Unknown' ? '' : item.loc);
+    setNewDesc(item.desc || '');
     setNewPhotos(item.photos || (item.photo ? [item.photo] : []));
     setEditingId(item.id);
     setSelectedListing(null);
@@ -496,6 +501,60 @@ export default function App() {
       lastSenderId: user.uid,
       updatedAt: serverTimestamp(),
     });
+  }
+
+  // ----- Offers (handled inside the chat) -----
+  function startOffer(listing: any) {
+    setSelectedListing(null);
+    setOfferAmount('');
+    // Stagger so the detail modal finishes closing first (iOS modal-on-modal)
+    setTimeout(() => setOfferFor(listing), 350);
+  }
+  function submitOffer() {
+    const amt = parseFloat(offerAmount);
+    if (!offerFor || !amt || amt <= 0) { setToast('Enter an offer amount'); return; }
+    const listing = offerFor;
+    setOfferFor(null);
+    setToast('Offer sent');
+    const chatId = `${listing.id}_${user.uid}`;
+    // Make sure the conversation exists, then post the offer as a special message
+    setDoc(doc(db, 'chats', chatId), {
+      listingId: listing.id, listingTitle: listing.title, listingPrice: listing.price,
+      listingEmoji: listing.emoji, listingBg: listing.bg,
+      sellerId: listing.sellerId, sellerName: listing.seller,
+      buyerId: user.uid, buyerName: username,
+      participants: [listing.sellerId, user.uid],
+      lastMessage: `Offer: $${amt}`, lastSenderId: user.uid, updatedAt: serverTimestamp(),
+    }, {merge: true})
+      .then(() => addDoc(collection(db, 'chats', chatId, 'messages'), {
+        senderId: user.uid, senderName: username,
+        text: `Offered $${amt}`, offer: amt, offerStatus: 'pending', createdAt: serverTimestamp(),
+      }))
+      .catch(() => setToast("Couldn't send offer — check your connection"));
+    addDoc(collection(db, 'notifs'), {
+      toId: listing.sellerId, kind: 'offer', read: false,
+      text: `${username} offered $${amt} for "${listing.title}"`, createdAt: serverTimestamp(),
+    }).catch(() => {});
+    // Open the conversation so the buyer sees their offer
+    setTimeout(() => {
+      setActiveChat({id: chatId, title: listing.title, price: listing.price, otherName: listing.seller, otherId: listing.sellerId});
+      setChatOpen(true);
+      markChatRead(chatId);
+    }, 400);
+  }
+  function respondOffer(m: any, accept: boolean) {
+    if (!activeChat) return;
+    const status = accept ? 'accepted' : 'declined';
+    updateDoc(doc(db, 'chats', activeChat.id, 'messages', m.id), {offerStatus: status});
+    const txt = accept ? `Accepted the offer of $${m.offer}` : `Declined the offer of $${m.offer}`;
+    addDoc(collection(db, 'chats', activeChat.id, 'messages'), {
+      senderId: user.uid, senderName: username, text: txt, createdAt: serverTimestamp(),
+    });
+    updateDoc(doc(db, 'chats', activeChat.id), {lastMessage: txt, lastSenderId: user.uid, updatedAt: serverTimestamp()});
+    addDoc(collection(db, 'notifs'), {
+      toId: m.senderId, kind: 'offer', read: false,
+      text: `Your offer of $${m.offer} was ${status}`, createdAt: serverTimestamp(),
+    }).catch(() => {});
   }
 
   // Save the chosen avatar to the user's profile
@@ -753,7 +812,7 @@ export default function App() {
           <View style={styles.detModal}>
             <View style={styles.detHeader}>
               <Text style={{fontSize: 17, fontWeight: '600', color: TEXT}}>{editingId ? 'Edit listing' : 'List your gear'}</Text>
-              <TouchableOpacity onPress={() => { setPostOpen(false); setEditingId(null); setSportDropOpen(false); }}>
+              <TouchableOpacity onPress={() => { setPostOpen(false); setEditingId(null); setSportDropOpen(false); setNewDesc(''); }}>
                 <Text style={styles.closeX}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -784,6 +843,8 @@ export default function App() {
               )}
               <Text style={styles.postLabel}>Item name</Text>
               <TextInput style={styles.postInput} placeholder="e.g. Adidas football boots" placeholderTextColor={TEXT3} value={newTitle} onChangeText={setNewTitle} />
+              <Text style={styles.postLabel}>Description</Text>
+              <TextInput style={[styles.postInput, {height: 88, textAlignVertical: 'top'}]} multiline placeholder="Size, condition, pickup info, anything buyers should know…" placeholderTextColor={TEXT3} value={newDesc} onChangeText={setNewDesc} />
               <Text style={styles.postLabel}>Price ($)</Text>
               <TextInput style={styles.postInput} placeholder="0" placeholderTextColor={TEXT3} keyboardType="numeric" value={newPrice} onChangeText={setNewPrice} />
               <Text style={styles.postLabel}>Sport</Text>
@@ -869,6 +930,7 @@ export default function App() {
                   <Text style={styles.tagText}>📍 {selectedListing?.loc}</Text>
                 </View>
               </View>
+              {!!selectedListing?.desc && <Text style={styles.detDesc}>{selectedListing.desc}</Text>}
               <View style={styles.detSeller}>
                 <View style={styles.sellerAvatar}>
                   <Text style={styles.sellerAvatarText}>{selectedListing?.seller}</Text>
@@ -899,6 +961,9 @@ export default function App() {
                 <>
                   <TouchableOpacity style={styles.cbtn} onPress={() => openChat(selectedListing)}>
                     <Text style={styles.cbtnText}>Message seller</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.offerBtn} onPress={() => startOffer(selectedListing)}>
+                    <Text style={styles.offerBtnText}>Make an offer</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={{alignItems: 'center', paddingVertical: 14}}
@@ -1070,6 +1135,7 @@ export default function App() {
         {(() => {
           const otherU = usersMap[activeChat?.otherId] || {};
           const liveChat = inboxChats.find(ch => ch.id === activeChat?.id);
+          const iAmSeller = liveChat?.sellerId === user.uid;
           const otherReadAt = liveChat?.reads?.[activeChat?.otherId]?.seconds || 0;
           // Index of my last message (for the read/sent receipt)
           let myLastIdx = -1;
@@ -1119,9 +1185,25 @@ export default function App() {
                           : <Text style={{fontSize: 12}}>{otherU.avatarEmoji || (m.senderName ? m.senderName.charAt(0).toUpperCase() : '?')}</Text>}
                       </View>
                     )}
-                    <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
-                      <Text style={mine ? styles.bubbleMineText : styles.bubbleTheirsText}>{m.text}</Text>
-                    </View>
+                    {m.offer != null ? (
+                      <View style={styles.offerCard}>
+                        <Text style={styles.offerCardLabel}>OFFER</Text>
+                        <Text style={styles.offerCardAmt}>${m.offer}</Text>
+                        {m.offerStatus === 'accepted' && <Text style={[styles.offerStatus, {color: '#1D9E75'}]}>✓ Accepted</Text>}
+                        {m.offerStatus === 'declined' && <Text style={[styles.offerStatus, {color: '#D4537E'}]}>Declined</Text>}
+                        {m.offerStatus === 'pending' && iAmSeller && !mine && (
+                          <View style={{flexDirection: 'row', gap: 8, marginTop: 8}}>
+                            <TouchableOpacity style={styles.offerAccept} onPress={() => respondOffer(m, true)}><Text style={styles.offerAcceptText}>Accept</Text></TouchableOpacity>
+                            <TouchableOpacity style={styles.offerDecline} onPress={() => respondOffer(m, false)}><Text style={styles.offerDeclineText}>Decline</Text></TouchableOpacity>
+                          </View>
+                        )}
+                        {m.offerStatus === 'pending' && (mine || !iAmSeller) && <Text style={styles.offerStatus}>Waiting for a reply…</Text>}
+                      </View>
+                    ) : (
+                      <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                        <Text style={mine ? styles.bubbleMineText : styles.bubbleTheirsText}>{m.text}</Text>
+                      </View>
+                    )}
                   </View>
                   {isMyLast && (
                     <Text style={styles.receipt}>
@@ -1149,6 +1231,36 @@ export default function App() {
         </SafeAreaView>
           );
         })()}
+      </Modal>
+
+      {/* Make an offer */}
+      <Modal visible={!!offerFor} animationType="fade" transparent onRequestClose={() => setOfferFor(null)}>
+        <View style={[styles.overlay, {justifyContent: 'center', alignItems: 'center', padding: 28}]}>
+          <View style={styles.offerModal}>
+            <Text style={styles.offerModalTitle}>Make an offer</Text>
+            <Text style={styles.offerModalSub} numberOfLines={1}>{offerFor?.title} · listed at ${offerFor?.price}</Text>
+            <View style={styles.offerInputWrap}>
+              <Text style={styles.offerDollar}>$</Text>
+              <TextInput
+                style={styles.offerInput}
+                placeholder="0"
+                placeholderTextColor={TEXT3}
+                keyboardType="numeric"
+                value={offerAmount}
+                onChangeText={setOfferAmount}
+                autoFocus
+              />
+            </View>
+            <View style={{flexDirection: 'row', gap: 10, marginTop: 18}}>
+              <TouchableOpacity style={[styles.offerModalBtn, {backgroundColor: BG2}]} onPress={() => setOfferFor(null)}>
+                <Text style={[styles.offerModalBtnText, {color: TEXT}]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.offerModalBtn, {backgroundColor: GOLD}]} onPress={submitOffer}>
+                <Text style={[styles.offerModalBtnText, {color: '#fff'}]}>Send offer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Dropdown Menu — root level, works on every tab */}
@@ -1339,6 +1451,25 @@ function makeStyles(c: any) {
   detEmoji: {fontSize: 80},
   detTitle: {fontSize: 18, fontWeight: '500', color: TEXT, marginBottom: 10},
   detTags: {flexDirection: 'row', gap: 8, marginBottom: 14},
+  detDesc: {fontSize: 14, color: TEXT, lineHeight: 20, marginBottom: 16},
+  offerBtn: {borderWidth: 1, borderColor: GOLD, borderRadius: 16, paddingVertical: 14, alignItems: 'center', marginTop: 10},
+  offerBtnText: {fontSize: 15, fontWeight: '700', color: GOLD_TEXT},
+  offerCard: {backgroundColor: GOLD_LIGHT, borderWidth: 0.5, borderColor: GOLD, borderRadius: 14, padding: 12, minWidth: 150},
+  offerCardLabel: {fontSize: 10, fontWeight: '800', color: GOLD_TEXT, letterSpacing: 1},
+  offerCardAmt: {fontSize: 22, fontWeight: '800', color: GOLD_TEXT, marginTop: 2},
+  offerStatus: {fontSize: 12, fontWeight: '600', color: TEXT2, marginTop: 4},
+  offerAccept: {flex: 1, backgroundColor: '#1D9E75', borderRadius: 10, paddingVertical: 8, alignItems: 'center'},
+  offerAcceptText: {color: '#fff', fontSize: 13, fontWeight: '700'},
+  offerDecline: {flex: 1, backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, paddingVertical: 8, alignItems: 'center'},
+  offerDeclineText: {color: TEXT, fontSize: 13, fontWeight: '700'},
+  offerModal: {width: '100%', maxWidth: 340, backgroundColor: BG, borderRadius: 18, padding: 22},
+  offerModalTitle: {fontSize: 18, fontWeight: '700', color: TEXT},
+  offerModalSub: {fontSize: 13, color: TEXT2, marginTop: 4, marginBottom: 16},
+  offerInputWrap: {flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: GOLD, borderRadius: 12, paddingHorizontal: 14, backgroundColor: BG2},
+  offerDollar: {fontSize: 24, fontWeight: '700', color: TEXT2},
+  offerInput: {flex: 1, fontSize: 24, fontWeight: '700', color: TEXT, paddingVertical: 12, paddingLeft: 6},
+  offerModalBtn: {flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center'},
+  offerModalBtnText: {fontSize: 15, fontWeight: '600'},
   tag: {borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4},
   tagText: {fontSize: 12, color: TEXT2},
   detSeller: {flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: BG2, borderRadius: 10, padding: 12, marginBottom: 14},
