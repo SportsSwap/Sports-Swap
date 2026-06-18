@@ -1,7 +1,7 @@
 import React, {useState, useMemo} from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, SafeAreaView, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
+  StyleSheet, SafeAreaView, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Linking,
 } from 'react-native';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
@@ -21,6 +21,9 @@ export default function AuthScreen({colors}: any) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const EULA_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
+  const PRIVACY_URL = 'https://github.com/SportsSwap/Sports-Swap/blob/main/PRIVACY.md';
 
   async function handleReset() {
     if (!email) { setError('Enter your email above first, then tap "Forgot password".'); return; }
@@ -36,6 +39,9 @@ export default function AuthScreen({colors}: any) {
   async function handleSignUp() {
     if (!email || !password || !username) {
       setError('Please fill in all fields.'); return;
+    }
+    if (!agreed) {
+      setError('Please agree to the Terms of Use (EULA) and Privacy Policy first.'); return;
     }
     if (username.length < 3) {
       setError('Username must be at least 3 characters.'); return;
@@ -58,6 +64,9 @@ export default function AuthScreen({colors}: any) {
   async function handleSignIn() {
     if (!email || !password) {
       setError('Please enter your email and password.'); return;
+    }
+    if (!agreed) {
+      setError('Please agree to the Terms of Use (EULA) and Privacy Policy first.'); return;
     }
     setLoading(true); setError('');
     try {
@@ -149,16 +158,27 @@ export default function AuthScreen({colors}: any) {
               </TouchableOpacity>
             )}
 
-            {mode === 'signup' && (
-              <Text style={styles.termsText}>
-                By creating an account you agree to our Terms of Use, Privacy Policy and Community Guidelines (available in Settings). There is zero tolerance for objectionable content or abusive behaviour.
+            {/* Agreement gate — required before sign in or sign up (App Store Guideline 1.2) */}
+            <TouchableOpacity
+              style={styles.agreeRow}
+              activeOpacity={0.7}
+              onPress={() => { setAgreed(!agreed); setError(''); }}>
+              <View style={[styles.checkbox, agreed && styles.checkboxOn]}>
+                {agreed && <Text style={styles.checkboxTick}>✓</Text>}
+              </View>
+              <Text style={styles.agreeText}>
+                I agree to the{' '}
+                <Text style={styles.link} onPress={() => Linking.openURL(EULA_URL)}>Terms of Use (EULA)</Text>
+                {' '}and{' '}
+                <Text style={styles.link} onPress={() => Linking.openURL(PRIVACY_URL)}>Privacy Policy</Text>.
+                There is zero tolerance for objectionable content or abusive behaviour.
               </Text>
-            )}
+            </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.btn}
+              style={[styles.btn, !agreed && styles.btnDisabled]}
               onPress={mode === 'signup' ? handleSignUp : handleSignIn}
-              disabled={loading}>
+              disabled={loading || !agreed}>
               {loading
                 ? <ActivityIndicator color="white" />
                 : <Text style={styles.btnText}>{mode === 'signup' ? 'Create account' : 'Sign in'}</Text>
@@ -200,6 +220,13 @@ function makeStyles(c: any) {
   notice: {fontSize: 13, color: '#1D9E75', marginTop: 12, textAlign: 'center'},
   forgot: {fontSize: 13, color: GOLD_TEXT, fontWeight: '600'},
   termsText: {fontSize: 11, color: TEXT3, lineHeight: 16, marginTop: 14, textAlign: 'center'},
+  agreeRow: {flexDirection: 'row', alignItems: 'flex-start', marginTop: 18, gap: 10},
+  checkbox: {width: 22, height: 22, borderRadius: 5, borderWidth: 1.5, borderColor: BORDER, alignItems: 'center', justifyContent: 'center', marginTop: 1},
+  checkboxOn: {backgroundColor: GOLD, borderColor: GOLD},
+  checkboxTick: {color: 'white', fontSize: 14, fontWeight: '800'},
+  agreeText: {flex: 1, fontSize: 12, color: TEXT2, lineHeight: 17},
+  link: {color: GOLD_TEXT, fontWeight: '600'},
+  btnDisabled: {opacity: 0.45},
   btn: {backgroundColor: GOLD, borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 20},
   btnText: {color: 'white', fontSize: 15, fontWeight: '600'},
   switchText: {fontSize: 13, color: TEXT2, textAlign: 'center', marginTop: 16},

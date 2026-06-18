@@ -277,12 +277,19 @@ export default function App() {
     if (user) setDoc(doc(db, 'users', user.uid), {darkMode: nv}, {merge: true});
   }
 
-  // Block / unblock — blocked people's posts, listings and chats are hidden for you
+  // Block / unblock — blocked people's posts, listings and chats are hidden for you instantly
   function blockUser(id: string, name: string) {
     if (!user || id === user.uid) return;
     const next = {...blockedUsers, [id]: name};
     setBlockedUsers(next);
     setDoc(doc(db, 'users', user.uid), {blockedUsers: next}, {merge: true});
+    // Notify the developer that a user was blocked, so we can review the account
+    addDoc(collection(db, 'reports'), {
+      type: 'block', reason: 'User blocked another user',
+      reportedId: id, reportedName: name,
+      reporterId: user.uid, reporterName: username,
+      createdAt: serverTimestamp(),
+    }).catch(() => {});
   }
   function unblockUser(id: string) {
     const next = {...blockedUsers};
