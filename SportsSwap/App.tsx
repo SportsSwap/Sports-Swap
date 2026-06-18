@@ -29,6 +29,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AuthScreen from './AuthScreen';
 import CommunityApp from './CommunityApp';
 import {Toast, ConfirmModal, SportPicker} from './Feedback';
+import {hasProfanity} from './moderation';
 import Settings from './Settings';
 import Icon from './Icon';
 
@@ -368,6 +369,10 @@ export default function App() {
 
   async function postListing() {
     if (!newTitle || !newPrice) return;
+    if (hasProfanity(newTitle) || hasProfanity(newDesc)) {
+      setToast("Please remove inappropriate language before posting");
+      return;
+    }
     const sport = SPORTS.find(s => s.id === newSport);
     const data = {
       title: newTitle,
@@ -502,6 +507,10 @@ export default function App() {
 
   async function sendMessage(text: string) {
     if (!text.trim() || !activeChat) return;
+    if (hasProfanity(text)) {
+      setToast("Please keep messages respectful — that can't be sent");
+      return;
+    }
     setInputText('');
     await addDoc(collection(db, 'chats', activeChat.id, 'messages'), {
       senderId: user.uid,

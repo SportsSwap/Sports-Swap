@@ -14,6 +14,7 @@ import {
   collection, addDoc, onSnapshot, orderBy, query, serverTimestamp,
   doc, updateDoc, deleteDoc, setDoc, arrayUnion, arrayRemove,
 } from 'firebase/firestore';
+import {hasProfanity} from './moderation';
 import {lightColors} from './theme';
 import Logo from './Logo';
 import Btn from './Btn';
@@ -88,9 +89,7 @@ function initials(name: string) {
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
 }
 
-// Profanity filter
-const BANNED = new Set(['fuck','fucking','fucker','fucked','motherfucker','shit','shitty','bullshit','bitch','asshole','arsehole','ass','arse','bastard','cunt','dick','dickhead','piss','slut','whore','fag','faggot','retard','retarded','nigger','nigga','wank','wanker','prick','twat','douche','cock','bollocks']);
-const hasProfanity = (t: string) => (t || '').toLowerCase().split(/[^a-z]+/).some(w => w && BANNED.has(w));
+// Profanity filter (shared word list — see moderation.ts)
 function clean(t: string) {
   if (hasProfanity(t)) { Alert.alert('Please keep it respectful', "Your message contains language that isn't allowed and can't be posted."); return false; }
   return true;

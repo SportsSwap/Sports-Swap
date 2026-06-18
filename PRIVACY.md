@@ -19,8 +19,8 @@ All data is stored securely using Firebase (Google Cloud) infrastructure. Your d
 
 ## Deleting your account
 
-To delete your account and all associated data, email us at support@sportsswap.app. We will process deletion requests within 30 days.
+To delete your account and all associated data, email us at SportsMACKAY@gmail.com. We will process deletion requests within 30 days.
 
 ## Contact
 
-If you have any questions about this policy, contact us at support@sportsswap.app.
+If you have any questions about this policy, contact us at SportsMACKAY@gmail.com.
