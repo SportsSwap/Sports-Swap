@@ -12,7 +12,7 @@ import {launchImageLibrary} from 'react-native-image-picker';
 import {db} from './firebase';
 import {
   collection, addDoc, onSnapshot, orderBy, query, serverTimestamp,
-  doc, updateDoc, deleteDoc, setDoc,
+  doc, updateDoc, deleteDoc, setDoc, arrayUnion, arrayRemove,
 } from 'firebase/firestore';
 import {lightColors} from './theme';
 import Logo from './Logo';
@@ -279,15 +279,28 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     setDoc(doc(db, 'users', uid), {savedPostIds: next}, {merge: true});
   }
 
-  // Repost to the community feed — instant, no confirm
+  // "You reposted" / "Sam reposted" / "Sam + 3 others reposted"
+  function repostLabel(reposts: any[] = []) {
+    if (!reposts.length) return '';
+    const mine = reposts.some((r: any) => r.id === uid);
+    const others = reposts.filter((r: any) => r.id !== uid);
+    if (mine && !others.length) return 'You reposted';
+    const lead = mine ? 'You' : others[0].name;
+    const rest = (mine ? others.length : others.length - 1);
+    return rest > 0 ? `${lead} + ${rest} other${rest === 1 ? '' : 's'} reposted` : `${lead} reposted`;
+  }
+  const iReposted = (p: any) => (p.reposts || []).some((r: any) => r.id === uid);
+
+  // Repost — don't duplicate the post, just record who reposted it on the original
   function repost(p: any) {
     buzz();
-    setToast('Reposted to the feed');
-    addDoc(collection(db, 'cposts'), {
-      authorId: uid, authorName: username, sport: p.sport, kind: p.kind || 'post',
-      text: p.text || '', photo: p.photo || null, photos: p.photos || [], tags: p.tags || [],
-      repostFrom: p.repostFrom || p.authorName,
-      announcement: false, votes: 0, comments: [], createdAt: serverTimestamp(),
+    const reposters: any[] = p.reposts || [];
+    const mine = reposters.some((r: any) => r.id === uid);
+    setToast(mine ? 'Removed your repost' : 'Reposted');
+    updateDoc(doc(db, 'cposts', p.id), {
+      reposts: mine
+        ? arrayRemove(...reposters.filter((r: any) => r.id === uid))
+        : arrayUnion({id: uid, name: username}),
     }).catch(() => setToast("Couldn't repost — check your connection"));
   }
 
@@ -389,9 +402,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   // ---------- POST CARD ----------
   function PostCard({p, onOpen, canPin}: any) {
     return (
-      <TouchableOpacity style={[styles.card, p.kind === 'achievement' && styles.cardAchievement, p.kind === 'question' && styles.cardQuestion, !!p.repostFrom && styles.cardRepost, p.pinned && styles.cardPinned]} onPress={onOpen} activeOpacity={0.9}>
+      <TouchableOpacity style={[styles.card, p.kind === 'achievement' && styles.cardAchievement, p.kind === 'question' && styles.cardQuestion, (p.reposts || []).length > 0 && styles.cardRepost, p.pinned && styles.cardPinned]} onPress={onOpen} activeOpacity={0.9}>
         {p.pinned && <View style={styles.pinBadge}><Text style={styles.pinBadgeText}>PINNED</Text></View>}
-        {!!p.repostFrom && <View style={styles.repostBadge}><Icon name="repeat" size={12} color={GOLD_DARK} /><Text style={styles.repostBadgeText}>{p.authorName} reposted{p.repostFrom !== p.authorName ? ` from ${p.repostFrom}` : ''}</Text></View>}
+        {(p.reposts || []).length > 0 && <View style={styles.repostBadge}><Icon name="repeat" size={12} color={GOLD_DARK} /><Text style={styles.repostBadgeText}>{repostLabel(p.reposts)}</Text></View>}
         {p.announcement && <View style={styles.annBadge}><Text style={styles.annBadgeText}>ANNOUNCEMENT</Text></View>}
         {p.kind === 'achievement' && <View style={styles.starBadge}><Icon name="medal" size={12} color={GOLD_DARK} /><Text style={styles.starBadgeText}>ACHIEVEMENT</Text></View>}
         {p.kind === 'question' && <View style={styles.qBadge}><Text style={styles.qBadgeText}>QUESTION</Text></View>}
@@ -420,7 +433,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         <View style={styles.actions}>
           <Reaction p={p} />
           <Btn style={styles.iconBtn} onPress={onOpen} scaleTo={1.15}><Icon name="chatbubble-outline" size={19} color={TEXT2} /><Text style={styles.iconCount}>{(p.comments || []).length}</Text></Btn>
-          <Btn style={styles.iconBtn} onPress={() => repost(p)} scaleTo={1.15}><Icon name="repeat-outline" size={20} color={TEXT2} /></Btn>
+          <Btn style={styles.iconBtn} onPress={() => repost(p)} scaleTo={1.15}><Icon name="repeat" size={20} color={iReposted(p) ? GOLD : TEXT2} />{(p.reposts || []).length > 0 && <Text style={[styles.iconCount, iReposted(p) && {color: GOLD}]}>{(p.reposts || []).length}</Text>}</Btn>
           <Btn style={styles.iconBtn} onPress={() => setSharePost(p)} scaleTo={1.15}><Icon name="arrow-redo-outline" size={19} color={TEXT2} /></Btn>
           <Btn style={styles.iconBtn} onPress={() => toggleSavePost(p)} scaleTo={1.15}><Icon name={isPostSaved(p.id) ? 'bookmark' : 'bookmark-outline'} size={19} color={isPostSaved(p.id) ? GOLD : TEXT2} /></Btn>
           <View style={{flex: 1}} />
@@ -728,7 +741,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               <View style={styles.actions}>
                 <Reaction p={p} />
                 <View style={styles.iconBtn}><Icon name="chatbubble-outline" size={19} color={TEXT2} /><Text style={styles.iconCount}>{(p.comments || []).length}</Text></View>
-                <Btn style={styles.iconBtn} onPress={() => repost(p)} scaleTo={1.15}><Icon name="repeat-outline" size={20} color={TEXT2} /></Btn>
+                <Btn style={styles.iconBtn} onPress={() => repost(p)} scaleTo={1.15}><Icon name="repeat" size={20} color={iReposted(p) ? GOLD : TEXT2} />{(p.reposts || []).length > 0 && <Text style={[styles.iconCount, iReposted(p) && {color: GOLD}]}>{(p.reposts || []).length}</Text>}</Btn>
                 <Btn style={styles.iconBtn} onPress={() => setSharePost(p)} scaleTo={1.15}><Icon name="arrow-redo-outline" size={19} color={TEXT2} /></Btn>
                 <Btn style={styles.iconBtn} onPress={() => toggleSavePost(p)} scaleTo={1.15}><Icon name={isPostSaved(p.id) ? 'bookmark' : 'bookmark-outline'} size={19} color={isPostSaved(p.id) ? GOLD : TEXT2} /></Btn>
                 <View style={{flex: 1}} />
