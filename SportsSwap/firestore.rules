@@ -1,0 +1,14 @@
+rules_version = '2';
+
+// SportsSwap Firestore rules — signed-in users only, no expiry.
+// Replaces the auto-generated "test mode" rules which EXPIRE after 30 days
+// (expired rules deny every read/write and the app can't load anything).
+//
+// To apply: Firebase console -> Firestore Database -> Rules -> paste -> Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

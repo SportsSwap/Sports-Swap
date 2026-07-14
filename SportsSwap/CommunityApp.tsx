@@ -150,16 +150,16 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const u1 = onSnapshot(query(collection(db, 'cposts'), orderBy('createdAt', 'desc')), snap => {
       setAllPosts(snap.docs.map(d => ({id: d.id, ...d.data()})));
       setLoading(false);
-    });
+    }, () => setLoading(false));
     const u2 = onSnapshot(collection(db, 'groups'), snap => {
       setGroups(snap.docs.map(d => ({id: d.id, ...d.data()})));
-    });
+    }, () => {});
     const u3 = onSnapshot(collection(db, 'follows'), snap => {
       setFollows(snap.docs.map(d => ({id: d.id, ...d.data()})));
-    });
+    }, () => {});
     const u4 = onSnapshot(collection(db, 'users'), snap => {
       setUsers(snap.docs.map(d => ({id: d.id, ...d.data()})));
-    });
+    }, () => {});
     return () => { u1(); u2(); u3(); u4(); };
   }, []);
 

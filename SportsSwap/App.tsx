@@ -143,6 +143,8 @@ export default function App() {
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [listings, setListings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [loadRetry, setLoadRetry] = useState(0);
   const [postOpen, setPostOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newPrice, setNewPrice] = useState('');
@@ -177,16 +179,21 @@ export default function App() {
       setUser(u);
       if (u) {
         setEmail(u.email || '');
-        const snap = await getDoc(doc(db, 'users', u.uid));
-        if (snap.exists()) {
-          const data = snap.data();
-          setUsername(data.username || 'User');
-          if (data.avatarEmoji) setAvatarEmoji(data.avatarEmoji);
-          if (data.avatarColor) setAvatarColor(data.avatarColor);
-          if (data.avatarPhoto) setAvatarPhoto(data.avatarPhoto);
-          if (Array.isArray(data.savedIds)) setSaved(new Set(data.savedIds));
-          setDark(!!data.darkMode);
-          if (data.blockedUsers) setBlockedUsers(data.blockedUsers);
+        try {
+          const snap = await getDoc(doc(db, 'users', u.uid));
+          if (snap.exists()) {
+            const data = snap.data();
+            setUsername(data.username || 'User');
+            if (data.avatarEmoji) setAvatarEmoji(data.avatarEmoji);
+            if (data.avatarColor) setAvatarColor(data.avatarColor);
+            if (data.avatarPhoto) setAvatarPhoto(data.avatarPhoto);
+            if (Array.isArray(data.savedIds)) setSaved(new Set(data.savedIds));
+            setDark(!!data.darkMode);
+            if (data.blockedUsers) setBlockedUsers(data.blockedUsers);
+          }
+        } catch (e) {
+          // Profile fetch failed (offline / permissions) — continue with defaults
+          // rather than leaving the app stuck on the loading screen forever.
         }
       }
       setAuthLoading(false);
@@ -197,14 +204,26 @@ export default function App() {
   // Load listings from Firebase in real time (only once logged in)
   useEffect(() => {
     if (!user) return;
+    // Safety net: never leave the spinner running forever if Firestore is unreachable
+    const failsafe = setTimeout(() => {
+      setLoading(false);
+      setLoadError(true);
+    }, 12000);
     const q = query(collection(db, 'listings'), orderBy('createdAt', 'desc'));
     const unsub = onSnapshot(q, snapshot => {
+      clearTimeout(failsafe);
       const items = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
       setListings(items);
+      setLoadError(false);
       setLoading(false);
+    }, () => {
+      // Permission or connection error — stop the spinner and show a retry state
+      clearTimeout(failsafe);
+      setLoading(false);
+      setLoadError(true);
     });
-    return () => unsub();
-  }, [user]);
+    return () => { clearTimeout(failsafe); unsub(); };
+  }, [user, loadRetry]);
 
   // Load my activity notifications (real time)
   useEffect(() => {
@@ -214,7 +233,7 @@ export default function App() {
       const items = snapshot.docs.map(d => ({id: d.id, ...d.data()} as any));
       items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setNotifs(items);
-    });
+    }, () => {});
     return () => unsub();
   }, [user]);
 
@@ -223,7 +242,7 @@ export default function App() {
     if (!user) return;
     const unsub = onSnapshot(collection(db, 'ratings'), snapshot => {
       setRatings(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
-    });
+    }, () => {});
     return () => unsub();
   }, [user]);
 
@@ -237,7 +256,7 @@ export default function App() {
       // Keep my own profile photo in sync if I change it in the Community tab
       const me = m[user.uid];
       if (me && me.avatarPhoto !== undefined) setAvatarPhoto(me.avatarPhoto);
-    });
+    }, () => {});
     return () => unsub();
   }, [user]);
 
@@ -249,7 +268,7 @@ export default function App() {
       const items = snapshot.docs.map(d => ({id: d.id, ...d.data()} as any));
       items.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
       setInboxChats(items);
-    });
+    }, () => {});
     return () => unsub();
   }, [user]);
 
@@ -259,7 +278,7 @@ export default function App() {
     const q = query(collection(db, 'chats', activeChat.id, 'messages'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, snapshot => {
       setChatMessages(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
-    });
+    }, () => {});
     return () => unsub();
   }, [activeChat]);
 
@@ -808,8 +827,22 @@ export default function App() {
         </View>
       )}
 
+      {/* Couldn't load — show retry instead of spinning forever */}
+      {!loading && loadError && (
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30}}>
+          <Icon name="cloud-offline-outline" size={40} color={TEXT3} />
+          <Text style={{color: TEXT, fontWeight: '600', fontSize: 16, marginTop: 12}}>Couldn't load listings</Text>
+          <Text style={{color: TEXT2, fontSize: 13, marginTop: 6, textAlign: 'center'}}>Check your connection and try again.</Text>
+          <TouchableOpacity
+            style={{backgroundColor: GOLD, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 28, marginTop: 16}}
+            onPress={() => { setLoading(true); setLoadError(false); setLoadRetry(n => n + 1); }}>
+            <Text style={{color: 'white', fontWeight: '600'}}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Listings grid */}
-      {!loading && <FlatList
+      {!loading && !loadError && <FlatList
         data={filtered}
         keyExtractor={i => String(i.id)}
         numColumns={2}
