@@ -320,6 +320,10 @@ export default function App() {
       setToast('Tap a star to choose your rating');
       return;
     }
+    if (hasProfanity(rateText)) {
+      setToast("Please remove inappropriate language from your review");
+      return;
+    }
     const target = rateTarget;
     // Close immediately and write in the background — never block the app on the network
     setRateTarget(null);
