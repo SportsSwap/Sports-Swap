@@ -534,18 +534,26 @@ export default function App() {
       setToast("Please keep messages respectful — that can't be sent");
       return;
     }
+    const body = text.trim();
+    const chatId = activeChat.id;
     setInputText('');
-    await addDoc(collection(db, 'chats', activeChat.id, 'messages'), {
-      senderId: user.uid,
-      senderName: username,
-      text: text.trim(),
-      createdAt: serverTimestamp(),
-    });
-    await updateDoc(doc(db, 'chats', activeChat.id), {
-      lastMessage: text.trim(),
-      lastSenderId: user.uid,
-      updatedAt: serverTimestamp(),
-    });
+    try {
+      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        senderId: user.uid,
+        senderName: username,
+        text: body,
+        createdAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: body,
+        lastSenderId: user.uid,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      // Put the text back so nothing is silently lost
+      setInputText(body);
+      setToast("Couldn't send — check your connection");
+    }
   }
 
   // ----- Offers (handled inside the chat) -----

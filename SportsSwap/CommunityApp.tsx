@@ -122,6 +122,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const [groups, setGroups] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [loadRetry, setLoadRetry] = useState(0);
   const [search, setSearch] = useState('');
   const [profile, setProfile] = useState<any>({sport: 'football', bio: '', photo: null});
   const [profileTab, setProfileTab] = useState('posts');
@@ -147,10 +149,14 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
   // Live data from Firebase
   useEffect(() => {
+    // Safety net: never leave the spinner running forever if Firestore is unreachable
+    const failsafe = setTimeout(() => { setLoading(false); setLoadError(true); }, 12000);
     const u1 = onSnapshot(query(collection(db, 'cposts'), orderBy('createdAt', 'desc')), snap => {
+      clearTimeout(failsafe);
       setAllPosts(snap.docs.map(d => ({id: d.id, ...d.data()})));
+      setLoadError(false);
       setLoading(false);
-    }, () => setLoading(false));
+    }, () => { clearTimeout(failsafe); setLoading(false); setLoadError(true); });
     const u2 = onSnapshot(collection(db, 'groups'), snap => {
       setGroups(snap.docs.map(d => ({id: d.id, ...d.data()})));
     }, () => {});
@@ -160,8 +166,8 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const u4 = onSnapshot(collection(db, 'users'), snap => {
       setUsers(snap.docs.map(d => ({id: d.id, ...d.data()})));
     }, () => {});
-    return () => { u1(); u2(); u3(); u4(); };
-  }, []);
+    return () => { clearTimeout(failsafe); u1(); u2(); u3(); u4(); };
+  }, [loadRetry]);
 
   // Hydrate my saved sports/bio/photo from my user doc (once)
   const hydratedRef = useRef(false);
@@ -226,14 +232,19 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   async function addCommentTo(p: any, text: string, tags: {id: string; name: string}[] = []) {
     if (!text.trim() || !clean(text)) return false;
     const next = [...(p.comments || []), {authorId: uid, authorName: username, text: text.trim(), votes: 0, tags}];
-    await updateDoc(doc(db, 'cposts', p.id), {comments: next});
+    try {
+      await updateDoc(doc(db, 'cposts', p.id), {comments: next});
+    } catch (e) {
+      setToast("Couldn't post your comment — check your connection");
+      return false;
+    }
     // Let the post author know (in Inbox > Activity)
     if (p.authorId !== uid) {
-      await addDoc(collection(db, 'notifs'), {
+      addDoc(collection(db, 'notifs'), {
         toId: p.authorId, kind: 'comment', read: false,
         text: `${username} commented on your post: "${text.trim().slice(0, 60)}"`,
         createdAt: serverTimestamp(),
-      });
+      }).catch(() => {});
     }
     // Let anyone tagged in the comment know
     tags.forEach(t => { if (t.id !== uid) addDoc(collection(db, 'notifs'), {
@@ -307,13 +318,15 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const myFollowers = follows.filter(f => f.followingId === uid).map(f => ({id: f.followerId, name: f.followerName}));
 
   async function shareToGroup(p: any, g: any) {
-    await addDoc(collection(db, 'cposts'), {
-      authorId: uid, authorName: username, sport: p.sport, groupId: g.id, kind: p.kind || 'post',
-      text: p.text || '', photo: p.photo || null, repostFrom: p.repostFrom || p.authorName,
-      announcement: false, votes: 0, comments: [], createdAt: serverTimestamp(),
-    });
     setSharePost(null);
-    Alert.alert('Shared', `Posted to ${g.name}.`);
+    setToast(`Shared to ${g.name}`);
+    addDoc(collection(db, 'cposts'), {
+      authorId: uid, authorName: username, sport: p.sport, groupId: g.id, kind: p.kind || 'post',
+      text: p.text || '', photo: p.photo || null, photos: p.photos || [],
+      // Mark it as a repost so the card shows who shared it in
+      reposts: [{id: uid, name: username}],
+      announcement: false, votes: 0, comments: [], createdAt: serverTimestamp(),
+    }).catch(() => setToast("Couldn't share — check your connection"));
   }
   async function shareToFollower(p: any, f: any) {
     const chatId = 'dm_' + [uid, f.id].sort().join('_');
@@ -328,7 +341,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       createdAt: serverTimestamp(),
     });
     setSharePost(null);
-    Alert.alert('Sent', `Shared to ${f.name}'s inbox.`);
+    setToast(`Sent to ${f.name}`);
   }
 
   // Choose what kind of thing to share
@@ -862,7 +875,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
                   <TouchableOpacity style={styles.composerThumbX} onPress={() => setPhotos(prev => prev.filter((_, j) => j !== i))}><Icon name="close" size={13} color="#fff" /></TouchableOpacity>
                 </View>
               ))}
-              {photos.length < 4 && (
+              {photos.length < 10 && (
                 <TouchableOpacity style={styles.composerAddTile} onPress={pick}><Icon name="camera-outline" size={22} color={GOLD} /></TouchableOpacity>
               )}
             </ScrollView>
@@ -1233,9 +1246,23 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         )}
       </View>
 
-      {loading
-        ? <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}><ActivityIndicator size="large" color={GOLD} /><Text style={{color: TEXT2, marginTop: 10}}>Loading community…</Text></View>
-        : (tab === 'community' ? CommunityFeed() : ProfileScreen())}
+      {loading ? (
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+          <ActivityIndicator size="large" color={GOLD} />
+          <Text style={{color: TEXT2, marginTop: 10}}>Loading community…</Text>
+        </View>
+      ) : loadError ? (
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30}}>
+          <Icon name="cloud-offline-outline" size={40} color={TEXT3} />
+          <Text style={{color: TEXT, fontWeight: '600', fontSize: 16, marginTop: 12}}>Couldn't load the community</Text>
+          <Text style={{color: TEXT2, fontSize: 13, marginTop: 6, textAlign: 'center'}}>Check your connection and try again.</Text>
+          <TouchableOpacity
+            style={{backgroundColor: GOLD, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 28, marginTop: 16}}
+            onPress={() => { setLoading(true); setLoadError(false); setLoadRetry(n => n + 1); }}>
+            <Text style={{color: '#fff', fontWeight: '600'}}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (tab === 'community' ? CommunityFeed() : ProfileScreen())}
 
       {thread && <ThreadView />}
       {group && <GroupPage />}

@@ -181,7 +181,7 @@ export default function Settings({colors, username, email, dark, toggleDark, blo
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.version}>SportsSwap · version 1.0</Text>
+          <Text style={styles.version}>SportsSwap · version 1.1</Text>
         </ScrollView>
 
         {/* Sub-page: legal text or blocked users */}
