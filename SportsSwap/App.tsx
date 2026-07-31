@@ -156,6 +156,7 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [notifs, setNotifs] = useState<any[]>([]);
+  const [myFollowing, setMyFollowing] = useState<Set<string>>(new Set());
   const [inboxView, setInboxView] = useState<'messages' | 'activity'>('messages');
   const [photoPage, setPhotoPage] = useState(0);
   const [myListingsOpen, setMyListingsOpen] = useState(false);
@@ -260,6 +261,16 @@ export default function App() {
     return () => unsub();
   }, [user]);
 
+  // Who I follow — so the Activity tab can offer "Follow back"
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'follows'), where('followerId', '==', user.uid));
+    const unsub = onSnapshot(q, snapshot => {
+      setMyFollowing(new Set(snapshot.docs.map(d => (d.data() as any).followingId)));
+    }, () => {});
+    return () => unsub();
+  }, [user]);
+
   // Load my conversations for the inbox (real time)
   useEffect(() => {
     if (!user) return;
@@ -359,6 +370,26 @@ export default function App() {
       text: `${username} rated you ${rateStars} star${rateStars === 1 ? '' : 's'}${rateText.trim() ? `: "${rateText.trim().slice(0, 60)}"` : ''}`,
       createdAt: serverTimestamp(),
     }).catch(() => {});
+  }
+
+  // Follow someone back straight from the Activity tab
+  function followBack(id: string, name: string) {
+    if (!id || id === user.uid || myFollowing.has(id)) return;
+    const theirName = name || 'Someone';
+    const myName = username || 'Someone';
+    setToast(`Following ${theirName}`);
+    addDoc(collection(db, 'follows'), {
+      followerId: user.uid, followerName: myName,
+      followingId: id, followingName: theirName,
+      createdAt: serverTimestamp(),
+    })
+      .then(() => addDoc(collection(db, 'notifs'), {
+        toId: id, kind: 'follow', read: false,
+        fromId: user.uid, fromName: myName,
+        text: `${myName} started following you`,
+        createdAt: serverTimestamp(),
+      }))
+      .catch(() => setToast("Couldn't follow — check your connection"));
   }
 
   // Report content — saved to a 'reports' collection for review
@@ -735,15 +766,28 @@ export default function App() {
               </View>
             ) : (
               <ScrollView contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 90}}>
-                {notifs.map(n => (
-                  <View key={n.id} style={[styles.notifRow, !n.read && styles.notifUnread]}>
-                    <View style={[styles.notifDot, {backgroundColor: n.read ? 'transparent' : GOLD}]} />
-                    <View style={{flex: 1}}>
-                      <Text style={styles.notifText}>{n.text}</Text>
-                      <Text style={styles.notifTime}>{notifAgo(n.createdAt)}</Text>
+                {notifs.map(n => {
+                  const canFollowBack = n.kind === 'follow' && n.fromId && n.fromId !== user.uid;
+                  const alreadyFollowing = canFollowBack && myFollowing.has(n.fromId);
+                  return (
+                    <View key={n.id} style={[styles.notifRow, !n.read && styles.notifUnread]}>
+                      <View style={[styles.notifDot, {backgroundColor: n.read ? 'transparent' : GOLD}]} />
+                      <View style={{flex: 1}}>
+                        <Text style={styles.notifText}>{n.text}</Text>
+                        <Text style={styles.notifTime}>{notifAgo(n.createdAt)}</Text>
+                      </View>
+                      {canFollowBack && (
+                        alreadyFollowing ? (
+                          <View style={styles.followingPill}><Text style={styles.followingPillText}>Following</Text></View>
+                        ) : (
+                          <TouchableOpacity style={styles.followBackBtn} onPress={() => followBack(n.fromId, n.fromName)}>
+                            <Text style={styles.followBackText}>Follow back</Text>
+                          </TouchableOpacity>
+                        )
+                      )}
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </ScrollView>
             )
           ) : visibleChats.length === 0 ? (
@@ -1417,6 +1461,8 @@ export default function App() {
           toggleDark={toggleDark}
           blockedUsers={Object.entries(blockedUsers).map(([id, name]) => ({id, name}))}
           onUnblock={unblockUser}
+          usernameChangedAt={usersMap[user.uid]?.usernameChangedAt}
+          onUsernameChanged={setUsername}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -1631,6 +1677,10 @@ function makeStyles(c: any) {
   notifDot: {width: 8, height: 8, borderRadius: 4},
   notifText: {fontSize: 14, color: TEXT, lineHeight: 19},
   notifTime: {fontSize: 12, color: TEXT2, marginTop: 2},
+  followBackBtn: {backgroundColor: GOLD, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 7},
+  followBackText: {fontSize: 12, fontWeight: '700', color: '#fff'},
+  followingPill: {backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 7},
+  followingPillText: {fontSize: 12, fontWeight: '600', color: TEXT2},
   unreadDot: {width: 9, height: 9, borderRadius: 5, backgroundColor: GOLD},
   navBadge: {position: 'absolute', top: -8, right: -16, backgroundColor: GOLD, borderRadius: 8, minWidth: 16, height: 16, paddingHorizontal: 3, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: BG},
   navBadgeText: {color: 'white', fontSize: 9, fontWeight: '800'},

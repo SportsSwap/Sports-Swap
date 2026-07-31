@@ -1,6 +1,17 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import * as firebaseAuth from 'firebase/auth';
+import { initializeAuth, getAuth, type Persistence } from 'firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// getReactNativePersistence only exists in the React Native build of
+// firebase/auth, which Metro resolves at runtime via the "react-native" export
+// condition. The published typings describe the browser build, so it has to be
+// read dynamically. If it's ever missing we fall back to the default auth
+// instance rather than crashing on startup.
+const getRNPersistence = (firebaseAuth as any).getReactNativePersistence as
+  | ((storage: unknown) => Persistence)
+  | undefined;
 import {
   FIREBASE_API_KEY,
   FIREBASE_AUTH_DOMAIN,
@@ -22,4 +33,17 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
-export const auth = getAuth(app);
+
+// Keep the user signed in between app launches. Without an explicit persistence
+// layer the RN SDK only keeps auth in memory, so every cold start logs you out.
+// initializeAuth throws if it's already been called (e.g. after a Fast Refresh),
+// so fall back to the existing instance in that case.
+let _auth;
+try {
+  _auth = getRNPersistence
+    ? initializeAuth(app, {persistence: getRNPersistence(AsyncStorage)})
+    : getAuth(app);
+} catch (e) {
+  _auth = getAuth(app);
+}
+export const auth = _auth;

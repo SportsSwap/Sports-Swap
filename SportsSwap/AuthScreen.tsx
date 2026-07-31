@@ -8,6 +8,7 @@ import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { lightColors } from './theme';
 import Logo from './Logo';
+import Icon from './Icon';
 
 export default function AuthScreen({colors}: any) {
   const c = colors || lightColors;
@@ -22,6 +23,7 @@ export default function AuthScreen({colors}: any) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [agreed, setAgreed] = useState(false);
+  const [showPw, setShowPw] = useState(false);
   const EULA_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
   const PRIVACY_URL = 'https://github.com/SportsSwap/Sports-Swap/blob/main/PRIVACY.md';
 
@@ -51,9 +53,11 @@ export default function AuthScreen({colors}: any) {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       // Save username to Firestore
       await setDoc(doc(db, 'users', cred.user.uid), {
-        username,
+        username: username.trim(),
         email,
         createdAt: new Date().toISOString(),
+        // Signing up doesn't count as a change, so the cooldown starts unused
+        usernameChangedAt: null,
       });
     } catch (e: any) {
       setError(friendlyError(e.code));
@@ -140,14 +144,24 @@ export default function AuthScreen({colors}: any) {
             />
 
             <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Min 6 characters"
-              placeholderTextColor={TEXT3}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
+            <View style={styles.pwWrap}>
+              <TextInput
+                style={styles.pwInput}
+                placeholder="Min 6 characters"
+                placeholderTextColor={TEXT3}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPw}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPw(s => !s)}
+                style={{padding: 6}}
+                accessibilityLabel={showPw ? 'Hide password' : 'Show password'}>
+                <Icon name={showPw ? 'eye-off-outline' : 'eye-outline'} size={20} color={TEXT2} />
+              </TouchableOpacity>
+            </View>
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
             {notice ? <Text style={styles.notice}>{notice}</Text> : null}
@@ -216,6 +230,8 @@ function makeStyles(c: any) {
   form: {backgroundColor: BG, borderRadius: 14, padding: 20, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.08)'},
   label: {fontSize: 12, color: TEXT2, marginBottom: 6, marginTop: 14},
   input: {borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, padding: 12, fontSize: 14, color: TEXT, backgroundColor: BG},
+  pwWrap: {flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 12, backgroundColor: BG},
+  pwInput: {flex: 1, paddingVertical: 12, fontSize: 14, color: TEXT},
   error: {fontSize: 13, color: '#D4537E', marginTop: 12, textAlign: 'center'},
   notice: {fontSize: 13, color: '#1D9E75', marginTop: 12, textAlign: 'center'},
   forgot: {fontSize: 13, color: GOLD_TEXT, fontWeight: '600'},

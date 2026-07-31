@@ -1,11 +1,42 @@
 import React, {useState, useMemo} from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, Linking,
+  TextInput, ActivityIndicator,
 } from 'react-native';
-import {sendPasswordResetEmail, signOut, deleteUser} from 'firebase/auth';
-import {doc, deleteDoc} from 'firebase/firestore';
+import {
+  sendPasswordResetEmail, signOut, deleteUser,
+  updatePassword, reauthenticateWithCredential, EmailAuthProvider,
+} from 'firebase/auth';
+import {doc, deleteDoc, setDoc, getDocs, collection, query, where} from 'firebase/firestore';
 import {auth, db} from './firebase';
 import Btn from './Btn';
+import Icon from './Icon';
+
+// How long you must wait between username changes
+const USERNAME_COOLDOWN_DAYS = 30;
+
+// Password field with a show/hide eye. Defined at module level so it keeps
+// keyboard focus — a component declared inside the screen would remount on
+// every keystroke.
+function PwField({value, onChangeText, placeholder, shown, onToggle, styles, colors}: any) {
+  return (
+    <View style={styles.pwWrap}>
+      <TextInput
+        style={styles.pwInput}
+        placeholder={placeholder}
+        placeholderTextColor={colors.TEXT3}
+        value={value}
+        onChangeText={onChangeText}
+        secureTextEntry={!shown}
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      <TouchableOpacity onPress={onToggle} style={{padding: 6}} accessibilityLabel={shown ? 'Hide password' : 'Show password'}>
+        <Icon name={shown ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.TEXT2} />
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 const SUPPORT_EMAIL = 'SportsMACKAY@gmail.com';
 
@@ -51,14 +82,95 @@ Your choices
 • You can delete your entire account from Settings, which removes your profile.
 • You can contact us at ${SUPPORT_EMAIL} with any privacy question or request.`;
 
-export default function Settings({colors, username, email, dark, toggleDark, blockedUsers, onUnblock, onClose}: any) {
+export default function Settings({colors, username, email, dark, toggleDark, blockedUsers, onUnblock, onClose, usernameChangedAt, onUsernameChanged}: any) {
   const c = colors;
   const {GOLD, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = c;
   const styles = useMemo(() => makeStyles(c), [c]);
-  const [page, setPage] = useState<string | null>(null); // guidelines | terms | privacy | blocked
+  const [page, setPage] = useState<string | null>(null); // guidelines | terms | privacy | blocked | username | password
 
-  function changePassword() {
-    Alert.alert('Change password', `We'll email a password reset link to ${email}.`, [
+  // ----- Change password (in-app) -----
+  const [curPw, setCurPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwErr, setPwErr] = useState('');
+  const [pwOk, setPwOk] = useState('');
+
+  // ----- Change username (rate limited) -----
+  const [newName, setNewName] = useState(username || '');
+  const [nameBusy, setNameBusy] = useState(false);
+  const [nameErr, setNameErr] = useState('');
+  const [nameOk, setNameOk] = useState('');
+
+  // Days left before the username can be changed again
+  const daysLeft = (() => {
+    if (!usernameChangedAt) return 0;
+    const changed = usernameChangedAt.seconds ? usernameChangedAt.seconds * 1000 : new Date(usernameChangedAt).getTime();
+    if (!changed || isNaN(changed)) return 0;
+    const elapsedDays = (Date.now() - changed) / 86400000;
+    return Math.max(0, Math.ceil(USERNAME_COOLDOWN_DAYS - elapsedDays));
+  })();
+
+  const [showCur, setShowCur] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  async function savePassword() {
+    setPwErr(''); setPwOk('');
+    if (!curPw || !newPw || !confirmPw) { setPwErr('Please fill in all three fields.'); return; }
+    if (newPw.length < 6) { setPwErr('New password must be at least 6 characters.'); return; }
+    if (newPw !== confirmPw) { setPwErr("New passwords don't match."); return; }
+    if (newPw === curPw) { setPwErr('Your new password must be different.'); return; }
+    const u = auth.currentUser;
+    if (!u || !u.email) { setPwErr('Please sign out and back in, then try again.'); return; }
+    setPwBusy(true);
+    try {
+      // Firebase requires a recent login before changing a password
+      await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, curPw));
+      await updatePassword(u, newPw);
+      setCurPw(''); setNewPw(''); setConfirmPw('');
+      setPwOk('Password updated.');
+    } catch (e: any) {
+      const code = e?.code || '';
+      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') setPwErr('Your current password is incorrect.');
+      else if (code === 'auth/weak-password') setPwErr('That password is too weak — use at least 6 characters.');
+      else if (code === 'auth/too-many-requests') setPwErr('Too many attempts. Please wait a few minutes.');
+      else setPwErr('Something went wrong. Please try again.');
+    }
+    setPwBusy(false);
+  }
+
+  async function saveUsername() {
+    setNameErr(''); setNameOk('');
+    const name = newName.trim();
+    if (!name) { setNameErr('Please enter a username.'); return; }
+    if (name === username) { setNameErr("That's already your username."); return; }
+    if (name.length < 3) { setNameErr('Username must be at least 3 characters.'); return; }
+    if (name.length > 20) { setNameErr('Username must be 20 characters or fewer.'); return; }
+    if (!/^[A-Za-z0-9_.]+$/.test(name)) { setNameErr('Use letters, numbers, underscores and dots only.'); return; }
+    if (daysLeft > 0) { setNameErr(`You can change your username again in ${daysLeft} day${daysLeft === 1 ? '' : 's'}.`); return; }
+    const u = auth.currentUser;
+    if (!u) { setNameErr('Please sign out and back in, then try again.'); return; }
+    setNameBusy(true);
+    try {
+      // Make sure nobody else has taken it
+      const taken = await getDocs(query(collection(db, 'users'), where('username', '==', name)));
+      if (taken.docs.some(d => d.id !== u.uid)) {
+        setNameErr('That username is already taken.');
+        setNameBusy(false);
+        return;
+      }
+      await setDoc(doc(db, 'users', u.uid), {username: name, usernameChangedAt: new Date().toISOString()}, {merge: true});
+      onUsernameChanged && onUsernameChanged(name);
+      setNameOk('Username updated.');
+    } catch (e) {
+      setNameErr('Something went wrong. Please try again.');
+    }
+    setNameBusy(false);
+  }
+
+  function resetPasswordEmail() {
+    Alert.alert('Forgot your password?', `We'll email a reset link to ${email}.`, [
       {text: 'Cancel', style: 'cancel'},
       {text: 'Send link', onPress: async () => {
         try {
@@ -100,7 +212,12 @@ export default function Settings({colors, username, email, dark, toggleDark, blo
     );
   }
 
-  const pageTitle = page === 'guidelines' ? 'Community Guidelines' : page === 'terms' ? 'Terms of Use' : page === 'privacy' ? 'Privacy Policy' : 'Blocked users';
+  const pageTitle = page === 'guidelines' ? 'Community Guidelines'
+    : page === 'terms' ? 'Terms of Use'
+    : page === 'privacy' ? 'Privacy Policy'
+    : page === 'username' ? 'Change username'
+    : page === 'password' ? 'Change password'
+    : 'Blocked users';
   const pageBody = page === 'guidelines' ? GUIDELINES : page === 'terms' ? TERMS : PRIVACY;
 
   return (
@@ -115,15 +232,18 @@ export default function Settings({colors, username, email, dark, toggleDark, blo
 
           <Text style={styles.sectionLabel}>Account</Text>
           <View style={styles.card}>
-            <View style={styles.row}>
+            <TouchableOpacity style={styles.row} onPress={() => { setNewName(username || ''); setNameErr(''); setNameOk(''); setPage('username'); }}>
               <Text style={styles.rowLabel}>Username</Text>
-              <Text style={styles.rowValue}>{username}</Text>
-            </View>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+                <Text style={styles.rowValue} numberOfLines={1}>{username}</Text>
+                <Text style={styles.chev}>›</Text>
+              </View>
+            </TouchableOpacity>
             <View style={styles.row}>
               <Text style={styles.rowLabel}>Email</Text>
               <Text style={styles.rowValue} numberOfLines={1}>{email}</Text>
             </View>
-            <TouchableOpacity style={[styles.row, {borderBottomWidth: 0}]} onPress={changePassword}>
+            <TouchableOpacity style={[styles.row, {borderBottomWidth: 0}]} onPress={() => { setCurPw(''); setNewPw(''); setConfirmPw(''); setPwErr(''); setPwOk(''); setPage('password'); }}>
               <Text style={styles.rowLabel}>Change password</Text>
               <Text style={styles.chev}>›</Text>
             </TouchableOpacity>
@@ -194,7 +314,48 @@ export default function Settings({colors, username, email, dark, toggleDark, blo
                 <View style={{width: 70}} />
               </View>
               <ScrollView contentContainerStyle={{padding: 18, paddingBottom: 50}}>
-                {page === 'blocked' ? (
+                {page === 'username' ? (
+                  <View style={styles.card}>
+                    <Text style={styles.formLabel}>New username</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="e.g. sportsfan99"
+                      placeholderTextColor={TEXT3}
+                      value={newName}
+                      onChangeText={t => { setNewName(t); setNameErr(''); setNameOk(''); }}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      maxLength={20}
+                    />
+                    <Text style={styles.formHint}>
+                      {daysLeft > 0
+                        ? `You changed your username recently. You can change it again in ${daysLeft} day${daysLeft === 1 ? '' : 's'}.`
+                        : `You can change your username once every ${USERNAME_COOLDOWN_DAYS} days, so choose carefully.`}
+                    </Text>
+                    {!!nameErr && <Text style={styles.formErr}>{nameErr}</Text>}
+                    {!!nameOk && <Text style={styles.formOk}>{nameOk}</Text>}
+                    <Btn style={[styles.saveBtn, (nameBusy || daysLeft > 0) && {opacity: 0.5}]} onPress={saveUsername} disabled={nameBusy || daysLeft > 0}>
+                      {nameBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Save username</Text>}
+                    </Btn>
+                  </View>
+                ) : page === 'password' ? (
+                  <View style={styles.card}>
+                    <Text style={styles.formLabel}>Current password</Text>
+                    <PwField value={curPw} onChangeText={(t: string) => { setCurPw(t); setPwErr(''); setPwOk(''); }} placeholder="Your current password" shown={showCur} onToggle={() => setShowCur(s => !s)} styles={styles} colors={c} />
+                    <Text style={styles.formLabel}>New password</Text>
+                    <PwField value={newPw} onChangeText={(t: string) => { setNewPw(t); setPwErr(''); setPwOk(''); }} placeholder="At least 6 characters" shown={showNew} onToggle={() => setShowNew(s => !s)} styles={styles} colors={c} />
+                    <Text style={styles.formLabel}>Confirm new password</Text>
+                    <PwField value={confirmPw} onChangeText={(t: string) => { setConfirmPw(t); setPwErr(''); setPwOk(''); }} placeholder="Type it again" shown={showConfirm} onToggle={() => setShowConfirm(s => !s)} styles={styles} colors={c} />
+                    {!!pwErr && <Text style={styles.formErr}>{pwErr}</Text>}
+                    {!!pwOk && <Text style={styles.formOk}>{pwOk}</Text>}
+                    <Btn style={[styles.saveBtn, pwBusy && {opacity: 0.5}]} onPress={savePassword} disabled={pwBusy}>
+                      {pwBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Update password</Text>}
+                    </Btn>
+                    <TouchableOpacity onPress={resetPasswordEmail} style={{alignItems: 'center', paddingVertical: 14}}>
+                      <Text style={{fontSize: 13, color: GOLD_TEXT, fontWeight: '600'}}>Forgot your current password?</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : page === 'blocked' ? (
                   blockedUsers.length ? blockedUsers.map((b: any) => (
                     <View key={b.id} style={styles.blockRow}>
                       <Text style={styles.rowLabel}>{b.name}</Text>
@@ -239,5 +400,14 @@ function makeStyles(c: any) {
     blockRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: BG, borderWidth: 0.5, borderColor: BORDER, borderRadius: 14, padding: 14, marginBottom: 10},
     unblockBtn: {backgroundColor: BG2, borderWidth: 0.5, borderColor: BORDER, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 7},
     unblockText: {fontSize: 13, fontWeight: '600', color: TEXT},
+    formLabel: {fontSize: 12, color: TEXT2, marginTop: 16, marginBottom: 6},
+    formInput: {borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, fontSize: 15, color: TEXT, backgroundColor: BG},
+    formHint: {fontSize: 12, color: TEXT3, lineHeight: 17, marginTop: 10},
+    formErr: {fontSize: 13, color: '#D4537E', marginTop: 12},
+    formOk: {fontSize: 13, color: '#1D9E75', marginTop: 12},
+    pwWrap: {flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: BORDER, borderRadius: 10, paddingHorizontal: 12, backgroundColor: BG},
+    pwInput: {flex: 1, paddingVertical: 12, fontSize: 15, color: TEXT},
+    saveBtn: {backgroundColor: GOLD, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 20, marginBottom: 4},
+    saveBtnText: {color: '#fff', fontSize: 15, fontWeight: '700'},
   });
 }

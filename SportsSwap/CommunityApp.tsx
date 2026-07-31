@@ -146,6 +146,25 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const [toast, setToast] = useState('');
   const [confirm, setConfirm] = useState<any>(null);
   const [chooser, setChooser] = useState<any>(null); // {target, groupId, sport} for the share sheet
+  const [returnGroup, setReturnGroup] = useState<string | null>(null); // group to reopen after a sheet closes
+
+  // iOS can't present two modals at once, so anything opened from inside the
+  // group page has to close it first. Remember the group and come back after.
+  function fromGroup(action: () => void) {
+    if (groupId) {
+      setReturnGroup(groupId);
+      setGroupId(null);
+      setTimeout(action, 350);
+    } else {
+      action();
+    }
+  }
+  function backToGroup() {
+    if (!returnGroup) return;
+    const g = returnGroup;
+    setReturnGroup(null);
+    setTimeout(() => setGroupId(g), 350);
+  }
 
   // Live data from Firebase
   useEffect(() => {
@@ -206,20 +225,40 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     return f ? f.id : null;
   };
   async function follow(other: any) {
-    if (other.id === uid || isFollowing(other.id)) return;
-    await addDoc(collection(db, 'follows'), {followerId: uid, followerName: username, followingId: other.id, followingName: other.name, createdAt: serverTimestamp()});
-    // Notify them in Inbox > Activity
-    await addDoc(collection(db, 'notifs'), {
-      toId: other.id, kind: 'follow', read: false,
-      text: username + ' started following you',
-      createdAt: serverTimestamp(),
-    });
+    if (!other || !other.id || other.id === uid || isFollowing(other.id)) return;
+    // Firestore rejects undefined values, which used to crash the app when a
+    // profile had no name saved — always fall back to a real string.
+    const theirName = other.name || other.username || 'Someone';
+    const myName = username || 'Someone';
+    try {
+      await addDoc(collection(db, 'follows'), {
+        followerId: uid, followerName: myName,
+        followingId: other.id, followingName: theirName,
+        createdAt: serverTimestamp(),
+      });
+      setToast(`Following ${theirName}`);
+      // Notify them in Inbox > Activity (fromId lets them follow back from there)
+      addDoc(collection(db, 'notifs'), {
+        toId: other.id, kind: 'follow', read: false,
+        fromId: uid, fromName: myName,
+        text: myName + ' started following you',
+        createdAt: serverTimestamp(),
+      }).catch(() => {});
+    } catch (e) {
+      setToast("Couldn't follow — check your connection");
+    }
   }
   async function unfollow(otherId: string) {
     const id = followDocId(otherId);
-    if (id) await deleteDoc(doc(db, 'follows', id));
+    if (!id) return;
+    try {
+      await deleteDoc(doc(db, 'follows', id));
+    } catch (e) {
+      setToast("Couldn't unfollow — check your connection");
+    }
   }
-  const removeFollowDoc = (id: string) => deleteDoc(doc(db, 'follows', id));
+  const removeFollowDoc = (id: string) =>
+    deleteDoc(doc(db, 'follows', id)).catch(() => setToast("Couldn't update — check your connection"));
 
   async function votePost(p: any, dir: number) {
     buzz();
@@ -680,7 +719,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               )}
             </View>
 
-            <TouchableOpacity style={[styles.composerBar, {marginTop: 14}]} onPress={() => openComposerChooser('group', g.id, g.sport)}>
+            <TouchableOpacity style={[styles.composerBar, {marginTop: 14}]} onPress={() => fromGroup(() => openComposerChooser('group', g.id, g.sport))}>
               <Avatar name={username} size={34} photo={profile.photo} />
               <Text style={styles.composerPh}>Start a conversation in {g.name}…</Text>
             </TouchableOpacity>
@@ -705,7 +744,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             )}
 
             <Text style={[styles.sectionLabel, {marginTop: 6}]}>Conversations</Text>
-            {convos.length ? convos.map(p => <PostCard key={p.id} p={p} onOpen={() => setThreadId(p.id)} canPin={mod} />)
+            {convos.length ? convos.map(p => <PostCard key={p.id} p={p} onOpen={() => fromGroup(() => setThreadId(p.id))} canPin={mod} />)
               : <Text style={{color: TEXT2, textAlign: 'center', padding: 20}}>No conversations yet — be the first to post!</Text>}
           </ScrollView>
         </View>
@@ -727,9 +766,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     }
     const sorted = [...(p.comments || [])].filter((cm: any) => !blocked[cm.authorId]).sort((a, b) => (b.votes || 0) - (a.votes || 0));
     return (
-      <Modal visible animationType="slide" onRequestClose={() => setThreadId(null)}>
+      <Modal visible animationType="slide" onRequestClose={() => { setThreadId(null); backToGroup(); }}>
         <View style={{flex: 1, backgroundColor: BG3}}>
-          <View style={styles.topbar}><TouchableOpacity style={styles.backBtn} onPress={() => setThreadId(null)}><Text style={styles.backText}>← Back</Text></TouchableOpacity></View>
+          <View style={styles.topbar}><TouchableOpacity style={styles.backBtn} onPress={() => { setThreadId(null); backToGroup(); }}><Text style={styles.backText}>← Back</Text></TouchableOpacity></View>
           <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 60}}>
             <View style={styles.pageCard}>
               {p.kind === 'achievement' && <View style={styles.starBadge}><Icon name="medal" size={12} color={GOLD_DARK} /><Text style={styles.starBadgeText}>Achievement</Text></View>}
@@ -846,6 +885,13 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       // Close immediately and write in the background — never block the app on the network
       setComposer(null);
       setToast('Posted');
+      // If it went to a group, take them back there to see it
+      if (postTarget !== 'community') {
+        setReturnGroup(null);
+        setTimeout(() => setGroupId(postTarget), 350);
+      } else {
+        backToGroup();
+      }
       addDoc(collection(db, 'cposts'), {
         authorId: uid, authorName: username, sport, groupId: postTarget === 'community' ? null : postTarget,
         announcement: false, kind, text: text.trim(), photo: photos[0] || null, photos, tags, votes: 0, comments: [], createdAt: serverTimestamp(),
@@ -858,9 +904,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       }).catch(() => {}));
     }
     return (
-      <Modal visible animationType="slide" transparent onRequestClose={() => setComposer(null)}>
+      <Modal visible animationType="slide" transparent onRequestClose={() => { setComposer(null); backToGroup(); }}>
         <View style={styles.overlay}><View style={styles.sheet}>
-          <View style={styles.sheetHead}><Text style={styles.sheetTitle}>{kindTitle}</Text><TouchableOpacity onPress={() => setComposer(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+          <View style={styles.sheetHead}><Text style={styles.sheetTitle}>{kindTitle}</Text><TouchableOpacity onPress={() => { setComposer(null); backToGroup(); }}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={styles.label}>Post to</Text>
             <SportPicker value={postTarget} onChange={setPostTarget} options={targetOptions} colors={c} small placeholder="Community" />
@@ -1356,9 +1402,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
       {/* Share chooser — clean in-app sheet */}
       {chooser && (
-        <Modal visible transparent animationType="slide" onRequestClose={() => setChooser(null)}>
+        <Modal visible transparent animationType="slide" onRequestClose={() => { setChooser(null); backToGroup(); }}>
           <View style={styles.overlay}><View style={styles.sheet}>
-            <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Share something</Text><TouchableOpacity onPress={() => setChooser(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+            <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Share something</Text><TouchableOpacity onPress={() => { setChooser(null); backToGroup(); }}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
             {[
               {kind: 'post', label: 'Create a post', sub: 'Share news, a tip or a result'},
               {kind: 'question', label: 'Ask a question', sub: 'Get help from the community'},
