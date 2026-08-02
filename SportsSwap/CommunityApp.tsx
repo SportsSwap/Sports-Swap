@@ -148,6 +148,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const [chooser, setChooser] = useState<any>(null); // {target, groupId, sport} for the share sheet
   const [returnGroup, setReturnGroup] = useState<string | null>(null); // group to reopen after a sheet closes
 
+  // Confirm dialogs run their callback later, by which time the values captured
+  // in the closure may be stale. These always point at the newest snapshot.
+  const groupsRef = useRef<any[]>([]);
+  const postsRef = useRef<any[]>([]);
+
   // iOS can't present two modals at once, so anything opened from inside the
   // group page has to close it first. Remember the group and come back after.
   function fromGroup(action: () => void) {
@@ -203,6 +208,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       bio: me.bio != null ? me.bio : prev.bio,
     }));
   }, [users, uid]);
+
+  groupsRef.current = groups;
+  postsRef.current = allPosts;
 
   // Hide content from people you've blocked
   const posts = allPosts.filter(p => !blocked[p.authorId]);
@@ -299,19 +307,42 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const attendees = isGoing(ev) ? (ev.attendees || []).filter((a: any) => a.id !== uid) : [...(ev.attendees || []), {id: uid, name: username}];
     await updateDoc(doc(db, 'cposts', ev.id), {attendees});
   }
-  // Moderator: pin / unpin a message
-  const togglePin = (p: any) => updateDoc(doc(db, 'cposts', p.id), {pinned: !p.pinned});
+  // Pinning is only ever allowed on a post that lives in a group you created.
+  // Checked here as well as in the UI so the rule holds even if a button leaks through.
+  const canModeratePost = (p: any) =>
+    !!p && !!p.groupId && !!isMod(groups.find((g: any) => g.id === p.groupId));
+
+  // Admin: pin / unpin a post so it sits at the top of the group
+  const togglePin = (p: any) => {
+    if (!canModeratePost(p)) return;
+    updateDoc(doc(db, 'cposts', p.id), {pinned: !p.pinned})
+      .catch(() => setToast("Couldn't update — check your connection"));
+  };
+
+  // Admin: pin / unpin a single comment inside a group thread
+  function toggleCommentPin(p: any, c: any) {
+    if (!canModeratePost(p)) return;
+    const next = (p.comments || []).map((x: any) => (x === c ? {...x, pinned: !x.pinned} : x));
+    updateDoc(doc(db, 'cposts', p.id), {comments: next})
+      .catch(() => setToast("Couldn't update — check your connection"));
+  }
 
   // Delete your own post / comment
   function deletePost(p: any) {
     if (p.authorId !== uid) return;
-    setConfirm({
+    const ask = () => setConfirm({
       title: 'Delete post?',
       message: 'This will permanently delete your post. This cannot be undone.',
       confirmText: 'Delete',
       destructive: true,
-      onConfirm: async () => { await deleteDoc(doc(db, 'cposts', p.id)); setThreadId(null); setToast('Post deleted'); },
+      onConfirm: () => {
+        deleteDoc(doc(db, 'cposts', p.id))
+          .then(() => setToast('Post deleted'))
+          .catch(() => setToast("Couldn't delete — check your connection"));
+      },
     });
+    // The thread is a modal and can't show a dialog over itself — close it first
+    if (threadId === p.id) { setThreadId(null); setTimeout(ask, 350); } else { ask(); }
   }
   async function deleteComment(p: any, c: any) {
     if (c.authorId !== uid) return;
@@ -420,7 +451,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         {tags.length > 0 && showTags && (
           <View style={styles.tagOverlay}>
             {tags.map(t => (
-              <TouchableOpacity key={t.id} style={styles.tagOverlayChip} onPress={() => { setThreadId(null); setViewUser({id: t.id, name: t.name, sport: ''}); }}>
+              <TouchableOpacity key={t.id} style={styles.tagOverlayChip} onPress={() => { setThreadId(null); setReturnGroup(null); setViewUser({id: t.id, name: t.name, sport: ''}); }}>
                 <Text style={styles.tagOverlayChipText}>@{t.name}</Text>
               </TouchableOpacity>
             ))}
@@ -645,14 +676,55 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     await updateDoc(doc(db, 'groups', g.id), {roster});
   }
   async function toggleJoin(g: any) { isJoined(g) ? leaveGroup(g) : joinGroup(g); }
-  async function removeMember(g: any, id: string) {
-    Alert.alert('Remove member', 'Remove this member from the group?', [
-      {text: 'Cancel', style: 'cancel'},
-      {text: 'Remove', style: 'destructive', onPress: async () => {
-        const roster = (g.roster || []).filter((m: any) => m.id !== id);
-        await updateDoc(doc(db, 'groups', g.id), {roster});
-      }},
-    ]);
+  // ----- Group admin — every one of these is gated on being the creator -----
+  function removeMember(g: any, m: any) {
+    if (!isMod(g) || m.id === g.creatorId) return;
+    setConfirm({
+      title: `Remove ${m.name}?`,
+      message: `They'll be taken out of ${g.name}. They can join again unless it's a private group.`,
+      confirmText: 'Remove',
+      destructive: true,
+      onConfirm: () => {
+        // Re-read the roster now, so anyone who joined while this dialog was
+        // open isn't wiped out by a stale copy.
+        const fresh = groupsRef.current.find((x: any) => x.id === g.id) || g;
+        const roster = (fresh.roster || []).filter((x: any) => x.id !== m.id);
+        updateDoc(doc(db, 'groups', g.id), {roster})
+          .then(() => setToast(`${m.name} removed`))
+          .catch(() => setToast("Couldn't remove them — check your connection"));
+      },
+    });
+  }
+
+  // Deleting the group also clears its posts so none are left orphaned
+  function deleteGroup(g: any) {
+    if (!isMod(g)) return;
+    setConfirm({
+      title: 'Delete group?',
+      message: `This permanently deletes "${g.name}" and all of its posts for everyone. This cannot be undone.`,
+      confirmText: 'Delete group',
+      destructive: true,
+      onConfirm: async () => {
+        setGroupId(null);
+        setReturnGroup(null);
+        try {
+          // Clear the group's posts first. If any fail we stop and keep the
+          // group, rather than deleting it and stranding unreachable posts.
+          const inGroup = postsRef.current.filter((p: any) => p.groupId === g.id);
+          const results = await Promise.all(
+            inGroup.map((p: any) => deleteDoc(doc(db, 'cposts', p.id)).then(() => true).catch(() => false)),
+          );
+          if (results.some(ok => !ok)) {
+            setToast("Couldn't delete all of the group's posts — nothing was removed");
+            return;
+          }
+          await deleteDoc(doc(db, 'groups', g.id));
+          setToast('Group deleted');
+        } catch (e) {
+          setToast("Couldn't delete the group — check your connection");
+        }
+      },
+    });
   }
   function makeAnnouncement(g: any) {
     if (!(Alert as any).prompt) { Alert.alert('Announce', 'Use the post box to share with the group.'); return; }
@@ -701,20 +773,38 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               {!!g.training && (<View style={styles.infoCard}><View style={{width: 3, alignSelf: 'stretch', backgroundColor: GOLD, borderRadius: 2, marginRight: 10}} /><View><Text style={styles.infoTitle}>TRAINING TIMES</Text><Text style={styles.infoText}>{g.training}</Text></View></View>)}
               {mod && (
                 <View style={styles.modBox}>
-                  <Text style={styles.modBoxTitle}>MODERATOR TOOLS</Text>
-                  <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+                  <View style={styles.adminHead}>
+                    <Icon name="shield-checkmark" size={15} color={GOLD_DARK} />
+                    <Text style={styles.modBoxTitle}>  ADMIN TOOLS</Text>
+                  </View>
+                  <Text style={styles.adminHint}>Only you can see this, because you created this group.</Text>
+                  <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10}}>
                     <Btn style={styles.modBtn} onPress={() => makeAnnouncement(g)} scaleTo={1.08}><Text style={styles.modBtnText}>Announce</Text></Btn>
-                    <Btn style={styles.modBtn} onPress={() => setEventGroup(g)} scaleTo={1.08}><Text style={styles.modBtnText}>+ Event</Text></Btn>
+                    <Btn style={styles.modBtn} onPress={() => fromGroup(() => setEventGroup(g))} scaleTo={1.08}><Text style={styles.modBtnText}>+ Event</Text></Btn>
                     <Btn style={styles.modBtn} onPress={() => editTraining(g)} scaleTo={1.08}><Text style={styles.modBtnText}>Training</Text></Btn>
                   </View>
-                  <Text style={[styles.infoTitle, {marginTop: 12, marginBottom: 6}]}>MEMBERS</Text>
+
+                  <Text style={[styles.infoTitle, {marginTop: 14, marginBottom: 6}]}>MEMBERS ({memberCount(g)})</Text>
                   {(g.roster || []).map((m: any) => (
                     <View key={m.id} style={styles.memberRow}>
                       <Avatar name={m.name} size={30} photo={photoOf(m.id)} />
-                      <Text style={{flex: 1, marginLeft: 8, fontSize: 13, color: TEXT}}>{m.name}{m.id === g.creatorId ? ' · moderator' : ''}</Text>
-                      {m.id !== g.creatorId && <TouchableOpacity onPress={() => removeMember(g, m.id)}><Text style={{color: '#B23', fontSize: 12, fontWeight: '600'}}>Remove</Text></TouchableOpacity>}
+                      <Text style={{flex: 1, marginLeft: 8, fontSize: 13, color: TEXT}}>{m.name}{m.id === g.creatorId ? ' · admin (you)' : ''}</Text>
+                      {m.id !== g.creatorId && (
+                        <TouchableOpacity onPress={() => removeMember(g, m)} hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                          <Text style={{color: '#B23', fontSize: 12, fontWeight: '600'}}>Remove</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))}
+
+                  <Text style={[styles.adminHint, {marginTop: 12}]}>
+                    Tap the pin on any post — or on a comment inside it — to keep it at the top of this group.
+                  </Text>
+
+                  <TouchableOpacity style={styles.deleteGroupBtn} onPress={() => deleteGroup(g)}>
+                    <Icon name="trash-outline" size={15} color="#fff" />
+                    <Text style={styles.deleteGroupText}>  Delete this group</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
@@ -747,6 +837,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
             {convos.length ? convos.map(p => <PostCard key={p.id} p={p} onOpen={() => fromGroup(() => setThreadId(p.id))} canPin={mod} />)
               : <Text style={{color: TEXT2, textAlign: 'center', padding: 20}}>No conversations yet — be the first to post!</Text>}
           </ScrollView>
+          {/* Toast/confirm have to live inside this modal to be visible above it */}
+          <Toast message={toast} onHide={() => setToast('')} colors={c} />
+          <ConfirmModal data={confirm} onClose={() => setConfirm(null)} colors={c} />
         </View>
       </Modal>
     );
@@ -764,7 +857,15 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     async function sendComment() {
       if (await addCommentTo(p, ct, ctags)) { setCt(''); setCtags([]); setCtagOpen(false); setCtagQuery(''); }
     }
-    const sorted = [...(p.comments || [])].filter((cm: any) => !blocked[cm.authorId]).sort((a, b) => (b.votes || 0) - (a.votes || 0));
+    // You can only moderate a thread that lives in a group you created
+    const canModerate = canModeratePost(p);
+    const sorted = [...(p.comments || [])]
+      .filter((cm: any) => !blocked[cm.authorId])
+      .sort((a, b) => {
+        // Pinned comments always sit at the top, then highest voted
+        const pinDiff = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+        return pinDiff !== 0 ? pinDiff : (b.votes || 0) - (a.votes || 0);
+      });
     return (
       <Modal visible animationType="slide" onRequestClose={() => { setThreadId(null); backToGroup(); }}>
         <View style={{flex: 1, backgroundColor: BG3}}>
@@ -782,7 +883,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
                 <View style={styles.inlineTagRow}>
                   <Text style={styles.meta}>with </Text>
                   {(p.tags || []).map((t: any, i: number) => (
-                    <TouchableOpacity key={t.id} onPress={() => { setThreadId(null); setViewUser({id: t.id, name: t.name, sport: ''}); }}>
+                    <TouchableOpacity key={t.id} onPress={() => { setThreadId(null); setReturnGroup(null); setViewUser({id: t.id, name: t.name, sport: ''}); }}>
                       <Text style={styles.inlineTag}>@{t.name}{i < (p.tags.length - 1) ? ', ' : ''}</Text>
                     </TouchableOpacity>
                   ))}
@@ -796,6 +897,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
                 <Btn style={styles.iconBtn} onPress={() => setSharePost(p)} scaleTo={1.15}><Icon name="arrow-redo-outline" size={19} color={TEXT2} /></Btn>
                 <Btn style={styles.iconBtn} onPress={() => toggleSavePost(p)} scaleTo={1.15}><Icon name={isPostSaved(p.id) ? 'bookmark' : 'bookmark-outline'} size={19} color={isPostSaved(p.id) ? GOLD : TEXT2} /></Btn>
                 <View style={{flex: 1}} />
+                {canModerate && <Btn style={styles.iconBtn} onPress={() => togglePin(p)} scaleTo={1.15}><Icon name={p.pinned ? 'pin' : 'pin-outline'} size={19} color={p.pinned ? GOLD : TEXT2} /></Btn>}
                 {p.authorId === uid && <Btn style={styles.iconBtn} onPress={() => deletePost(p)} scaleTo={1.15}><Icon name="trash-outline" size={19} color="#C0506E" /></Btn>}
                 {p.authorId !== uid && onReport && <Btn style={styles.iconBtn} onPress={() => onReport({type: 'post', targetId: p.id, targetText: p.text || '', reportedId: p.authorId, reportedName: p.authorName})} scaleTo={1.15}><Icon name="flag-outline" size={18} color={TEXT2} /></Btn>}
               </View>
@@ -831,26 +933,43 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               )}
               <Text style={[styles.sectionLabel, {marginTop: 14}]}>{(p.comments || []).length} Comments · top</Text>
               {sorted.map((c, i) => (
-                <View key={i} style={styles.tcomment}>
+                <View key={i} style={[styles.tcomment, c.pinned && styles.tcommentPinned]}>
                   <Avatar name={c.authorName} size={32} photo={photoOf(c.authorId)} />
                   <View style={{flex: 1, marginLeft: 10}}>
+                    {c.pinned && (
+                      <View style={styles.commentPinTag}>
+                        <Icon name="pin" size={10} color={GOLD_DARK} />
+                        <Text style={styles.commentPinTagText}>  PINNED</Text>
+                      </View>
+                    )}
                     <Text style={styles.author}>{c.authorName}</Text>
                     <Text style={styles.body}>{c.text}</Text>
                     {(c.tags || []).length > 0 && (
                       <View style={[styles.inlineTagRow, {marginTop: 4, marginBottom: 0}]}>
                         {(c.tags || []).map((t: any, j: number) => (
-                          <TouchableOpacity key={t.id} onPress={() => { setThreadId(null); setViewUser({id: t.id, name: t.name, sport: ''}); }}>
+                          <TouchableOpacity key={t.id} onPress={() => { setThreadId(null); setReturnGroup(null); setViewUser({id: t.id, name: t.name, sport: ''}); }}>
                             <Text style={styles.inlineTag}>@{t.name}{j < (c.tags.length - 1) ? ', ' : ''}</Text>
                           </TouchableOpacity>
                         ))}
                       </View>
                     )}
-                    {c.authorId === uid && <TouchableOpacity onPress={() => deleteComment(p, c)}><Text style={{color: '#B23', fontSize: 12, fontWeight: '600'}}>Delete</Text></TouchableOpacity>}
+                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 2}}>
+                      {canModerate && (
+                        <TouchableOpacity onPress={() => toggleCommentPin(p, c)} hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                          <Text style={{color: c.pinned ? GOLD_TEXT : TEXT2, fontSize: 12, fontWeight: '600'}}>{c.pinned ? 'Unpin' : 'Pin'}</Text>
+                        </TouchableOpacity>
+                      )}
+                      {c.authorId === uid && <TouchableOpacity onPress={() => deleteComment(p, c)}><Text style={{color: '#B23', fontSize: 12, fontWeight: '600'}}>Delete</Text></TouchableOpacity>}
+                    </View>
                   </View>
                 </View>
               ))}
             </View>
           </ScrollView>
+          {/* Toast is a plain view, so it's safe to nest. A confirm dialog is a
+              modal and this screen remounts, so deletePost closes the thread
+              first and confirms at the root instead. */}
+          <Toast message={toast} onHide={() => setToast('')} colors={c} />
         </View>
       </Modal>
     );
@@ -865,7 +984,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     const [tagOpen, setTagOpen] = useState(false);
     const [tagQuery, setTagQuery] = useState('');
     const [postTarget, setPostTarget] = useState(composer.target === 'group' ? composer.groupId : 'community');
-    const targetOptions = [{id: 'community', label: 'Community'}, ...myGroups.map(g => ({id: g.id, label: g.name}))];
+    // Include the group we were opened from even if you haven't joined it, or the
+    // picker would show "Community" while actually posting into the group.
+    const targetGroups = groups.filter(g => isJoined(g) || g.id === composer.groupId);
+    const targetOptions = [{id: 'community', label: 'Community'}, ...targetGroups.map(g => ({id: g.id, label: g.name}))];
     const kind = composer.kind || 'post';
     const kindTitle = kind === 'question' ? 'Ask a question' : kind === 'achievement' ? 'Share an achievement' : (composer.target === 'group' ? 'Post to group' : 'Create a post');
     const kindPh = kind === 'question' ? "What's your question?" : kind === 'achievement' ? 'Share your achievement!' : 'Share news, a tip, a result…';
@@ -1050,6 +1172,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       // Close immediately and write in the background — never block the app on the network
       setEventGroup(null);
       setToast('Event posted');
+      backToGroup();
       addDoc(collection(db, 'cposts'), {
         authorId: uid, authorName: username, sport: g.sport, groupId: g.id, kind: 'event',
         eventTitle: title.trim(), eventDate: date.trim(), eventLocation: loc.trim(),
@@ -1057,9 +1180,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       }).catch(() => setToast("Couldn't post event — check your connection"));
     }
     return (
-      <Modal visible transparent animationType="slide" onRequestClose={() => setEventGroup(null)}>
+      <Modal visible transparent animationType="slide" onRequestClose={() => { setEventGroup(null); backToGroup(); }}>
         <View style={styles.overlay}><View style={styles.sheet}>
-          <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Create an event</Text><TouchableOpacity onPress={() => setEventGroup(null)}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
+          <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Create an event</Text><TouchableOpacity onPress={() => { setEventGroup(null); backToGroup(); }}><Text style={styles.x}>✕</Text></TouchableOpacity></View>
           <ScrollView>
             <Text style={styles.label}>Event name</Text>
             <TextInput style={styles.input} placeholder="e.g. Saturday training session" placeholderTextColor={TEXT3} value={title} onChangeText={setTitle} />
@@ -1311,7 +1434,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       ) : (tab === 'community' ? CommunityFeed() : ProfileScreen())}
 
       {thread && <ThreadView />}
-      {group && <GroupPage />}
+      {/* Called as a function, not <GroupPage />. Declared inside this component,
+          it would be a new component type on every render, so React would tear
+          down and re-present the modal each time — which freezes iOS mid-dialog. */}
+      {group && GroupPage()}
       {composer && <Composer />}
       {createOpen && <CreateGroup />}
       {joinOpen && <JoinGroup />}
@@ -1428,8 +1554,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         </Modal>
       )}
 
-      <Toast message={toast} onHide={() => setToast('')} colors={c} />
-      <ConfirmModal data={confirm} onClose={() => setConfirm(null)} colors={c} />
+      {/* GroupPage and ThreadView render their own toast (a modal covers this one).
+          The confirm dialog only needs skipping while the group page is up, since
+          that screen renders its own — every other flow closes first. */}
+      {!group && !thread && <Toast message={toast} onHide={() => setToast('')} colors={c} />}
+      {!group && <ConfirmModal data={confirm} onClose={() => setConfirm(null)} colors={c} />}
     </SafeAreaView>
   );
 }
@@ -1513,7 +1642,14 @@ function makeStyles(c: any) {
   infoTitle: {fontSize: 11, fontWeight: '700', letterSpacing: 0.3, color: TEXT3},
   infoText: {fontSize: 14, color: TEXT, fontWeight: '500'},
   modBox: {backgroundColor: GOLD_LIGHT, borderWidth: 0.5, borderColor: '#E3B948', borderRadius: 8, padding: 12, marginTop: 12},
-  modBoxTitle: {fontSize: 12, fontWeight: '700', color: GOLD_DARK, marginBottom: 10},
+  modBoxTitle: {fontSize: 12, fontWeight: '700', color: GOLD_DARK},
+  adminHead: {flexDirection: 'row', alignItems: 'center'},
+  adminHint: {fontSize: 11.5, color: GOLD_DARK, lineHeight: 16, marginTop: 6, opacity: 0.9},
+  deleteGroupBtn: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#C0506E', borderRadius: 10, paddingVertical: 11, marginTop: 14},
+  deleteGroupText: {color: '#fff', fontSize: 13.5, fontWeight: '700'},
+  tcommentPinned: {backgroundColor: GOLD_LIGHT, borderRadius: 10, padding: 8, marginHorizontal: -4},
+  commentPinTag: {flexDirection: 'row', alignItems: 'center', marginBottom: 2},
+  commentPinTagText: {fontSize: 10, fontWeight: '800', color: GOLD_DARK, letterSpacing: 0.5},
   modBtn: {backgroundColor: BG, borderWidth: 0.5, borderColor: '#E3B948', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8},
   modBtnText: {fontSize: 13, fontWeight: '600', color: GOLD_DARK},
   memberRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 6},
