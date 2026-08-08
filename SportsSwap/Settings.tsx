@@ -82,7 +82,7 @@ Your choices
 • You can delete your entire account from Settings, which removes your profile.
 • You can contact us at ${SUPPORT_EMAIL} with any privacy question or request.`;
 
-export default function Settings({colors, username, email, dark, toggleDark, blockedUsers, onUnblock, onClose, usernameChangedAt, onUsernameChanged}: any) {
+export default function Settings({colors, username, email, dark, toggleDark, blockedUsers, onUnblock, onClose, usernameChangedAt, onUsernameChanged, isGuest, onSignIn}: any) {
   const c = colors;
   const {GOLD, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = c;
   const styles = useMemo(() => makeStyles(c), [c]);
@@ -230,6 +230,21 @@ export default function Settings({colors, username, email, dark, toggleDark, blo
         </View>
         <ScrollView contentContainerStyle={{padding: 14, paddingBottom: 50}}>
 
+          {isGuest ? (
+            <>
+              <Text style={styles.sectionLabel}>Account</Text>
+              <View style={styles.card}>
+                <View style={[styles.row, {borderBottomWidth: 0, flexDirection: 'column', alignItems: 'flex-start'}]}>
+                  <Text style={styles.rowLabel}>You're browsing as a guest</Text>
+                  <Text style={[styles.formHint, {marginTop: 4}]}>Create a free account to post, message, save and follow.</Text>
+                  <Btn style={[styles.saveBtn, {alignSelf: 'stretch', marginTop: 14}]} onPress={onSignIn}>
+                    <Text style={styles.saveBtnText}>Sign in or create account</Text>
+                  </Btn>
+                </View>
+              </View>
+            </>
+          ) : (
+          <>
           <Text style={styles.sectionLabel}>Account</Text>
           <View style={styles.card}>
             <TouchableOpacity style={styles.row} onPress={() => { setNewName(username || ''); setNameErr(''); setNameOk(''); setPage('username'); }}>
@@ -248,6 +263,8 @@ export default function Settings({colors, username, email, dark, toggleDark, blo
               <Text style={styles.chev}>›</Text>
             </TouchableOpacity>
           </View>
+          </>
+          )}
 
           <Text style={styles.sectionLabel}>Appearance</Text>
           <View style={styles.card}>
@@ -292,14 +309,16 @@ export default function Settings({colors, username, email, dark, toggleDark, blo
             </TouchableOpacity>
           </View>
 
-          <View style={[styles.card, {marginTop: 22}]}>
-            <TouchableOpacity style={styles.row} onPress={() => { onClose(); signOut(auth); }}>
-              <Text style={[styles.rowLabel, {color: TEXT2}]}>Log out</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.row, {borderBottomWidth: 0}]} onPress={deleteAccount}>
-              <Text style={[styles.rowLabel, {color: '#C0506E'}]}>Delete account</Text>
-            </TouchableOpacity>
-          </View>
+          {!isGuest && (
+            <View style={[styles.card, {marginTop: 22}]}>
+              <TouchableOpacity style={styles.row} onPress={() => { onClose(); signOut(auth); }}>
+                <Text style={[styles.rowLabel, {color: TEXT2}]}>Log out</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.row, {borderBottomWidth: 0}]} onPress={deleteAccount}>
+                <Text style={[styles.rowLabel, {color: '#C0506E'}]}>Delete account</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <Text style={styles.version}>SportsSwap · version 1.1</Text>
         </ScrollView>

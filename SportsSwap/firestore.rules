@@ -1,13 +1,57 @@
 rules_version = '2';
 
-// SportsSwap Firestore rules — signed-in users only, no expiry.
-// Replaces the auto-generated "test mode" rules which EXPIRE after 30 days
-// (expired rules deny every read/write and the app can't load anything).
+// SportsSwap Firestore rules.
+//
+// Public content is readable without signing in, because App Store Guideline
+// 5.1.1(v) requires browsing to work without an account. Writing anything
+// still requires a signed-in user.
+//
+// Personal data (accounts, chats, notifications, reports) stays signed-in only
+// so nobody can scrape email addresses or read other people's messages.
+//
+// These rules never expire — unlike the default "test mode" ones, which stop
+// working after 30 days and make the whole app fail to load.
 //
 // To apply: Firebase console -> Firestore Database -> Rules -> paste -> Publish.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
+
+    // ---- Public: browsable signed out, writable only when signed in ----
+    match /listings/{doc} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /cposts/{doc} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /groups/{doc} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /follows/{doc} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /ratings/{doc} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // ---- Private: signed-in only (users holds email addresses) ----
+    match /users/{doc} {
+      allow read, write: if request.auth != null;
+    }
+    match /chats/{doc} {
+      allow read, write: if request.auth != null;
+      match /messages/{msg} {
+        allow read, write: if request.auth != null;
+      }
+    }
+    match /notifs/{doc} {
+      allow read, write: if request.auth != null;
+    }
+    match /reports/{doc} {
       allow read, write: if request.auth != null;
     }
   }

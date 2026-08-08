@@ -10,7 +10,7 @@ import { lightColors } from './theme';
 import Logo from './Logo';
 import Icon from './Icon';
 
-export default function AuthScreen({colors}: any) {
+export default function AuthScreen({colors, onGuest}: any) {
   const c = colors || lightColors;
   const {GOLD, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER2} = c;
   const BORDER = c.BORDER2;
@@ -206,6 +206,23 @@ export default function AuthScreen({colors}: any) {
             </TouchableOpacity>
           </View>
 
+          {/* Browsing the marketplace and community needs no account (Guideline 5.1.1(v)) */}
+          {!!onGuest && (
+            <>
+              <View style={styles.orRow}>
+                <View style={styles.orLine} />
+                <Text style={styles.orText}>or</Text>
+                <View style={styles.orLine} />
+              </View>
+              <TouchableOpacity style={styles.guestBtn} onPress={onGuest}>
+                <Text style={styles.guestBtnText}>Browse without an account</Text>
+              </TouchableOpacity>
+              <Text style={styles.guestHint}>
+                Look around the marketplace and community first. You only need an account to post, message or save.
+              </Text>
+            </>
+          )}
+
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -246,5 +263,11 @@ function makeStyles(c: any) {
   btn: {backgroundColor: GOLD, borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 20},
   btnText: {color: 'white', fontSize: 15, fontWeight: '600'},
   switchText: {fontSize: 13, color: TEXT2, textAlign: 'center', marginTop: 16},
+  orRow: {flexDirection: 'row', alignItems: 'center', marginTop: 22, marginBottom: 14, gap: 12},
+  orLine: {flex: 1, height: 0.5, backgroundColor: BORDER},
+  orText: {fontSize: 12, color: TEXT3},
+  guestBtn: {borderWidth: 1, borderColor: GOLD, borderRadius: 10, paddingVertical: 14, alignItems: 'center', backgroundColor: BG},
+  guestBtnText: {color: GOLD_TEXT, fontSize: 15, fontWeight: '700'},
+  guestHint: {fontSize: 12, color: TEXT3, textAlign: 'center', lineHeight: 17, marginTop: 10},
   });
 }

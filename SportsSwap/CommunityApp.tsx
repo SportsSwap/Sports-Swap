@@ -1,13 +1,17 @@
 import React, {useState, useEffect, useMemo, useRef} from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Modal,
-  StyleSheet, Image, Alert, ActivityIndicator, SafeAreaView, Vibration, Dimensions,
+  StyleSheet, Image, Alert, ActivityIndicator, SafeAreaView, Dimensions,
 } from 'react-native';
 
 const WIDTH = Dimensions.get('window').width;
 
-// Tiny tap feedback for likes/votes (no-op on the simulator — only real phones vibrate)
-const buzz = () => { try { Vibration.vibrate(10); } catch (e) {} };
+// Tap feedback hook. Deliberately does nothing right now: on iOS,
+// Vibration.vibrate(ms) ignores the duration and always fires the full-strength
+// system buzz, which is far too heavy for votes and tab switches. A light tap
+// needs UIImpactFeedbackGenerator via a haptics library — wire it in here if we
+// add one, and every call site picks it up.
+const buzz = () => {};
 import {launchImageLibrary} from 'react-native-image-picker';
 import {db} from './firebase';
 import {
@@ -95,7 +99,7 @@ function clean(t: string) {
   return true;
 }
 
-export default function CommunityApp({tab, username, uid, onInbox, onMenu, colors, blocked = {}, onBlock, onReport}: any) {
+export default function CommunityApp({tab, username, uid, onInbox, onMenu, colors, blocked = {}, onBlock, onReport, isGuest, onSignIn}: any) {
   const c = colors || lightColors;
   const {GOLD, GOLD_DARK, GOLD_LIGHT, GOLD_TEXT, BG, BG2, BG3, TEXT, TEXT2, TEXT3, BORDER} = c;
   const styles = useMemo(() => makeStyles(c), [c]);
@@ -147,6 +151,13 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const [confirm, setConfirm] = useState<any>(null);
   const [chooser, setChooser] = useState<any>(null); // {target, groupId, sport} for the share sheet
   const [returnGroup, setReturnGroup] = useState<string | null>(null); // group to reopen after a sheet closes
+  // Comment box state lives here, not inside ThreadView, so the thread can be
+  // rendered without being its own component (see ThreadView) — otherwise a
+  // draft comment was wiped every time any post anywhere updated.
+  const [ct, setCt] = useState('');
+  const [ctags, setCtags] = useState<{id: string; name: string}[]>([]);
+  const [ctagOpen, setCtagOpen] = useState(false);
+  const [ctagQuery, setCtagQuery] = useState('');
 
   // Confirm dialogs run their callback later, by which time the values captured
   // in the closure may be stale. These always point at the newest snapshot.
@@ -212,6 +223,25 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   groupsRef.current = groups;
   postsRef.current = allPosts;
 
+  // Reading is always open; anything that writes needs an account (Guideline
+  // 5.1.1(v)). Uses this screen's own confirm so it shows above the group and
+  // thread modals too.
+  function needsAccount(action: string) {
+    if (!isGuest) return false;
+    setConfirm({
+      title: 'Sign in to continue',
+      message: `You need a free account to ${action}. You can keep browsing without one.`,
+      confirmText: 'Sign in or join',
+      onConfirm: () => onSignIn && onSignIn(),
+    });
+    return true;
+  }
+
+  // Start each thread with a fresh comment box
+  useEffect(() => {
+    setCt(''); setCtags([]); setCtagOpen(false); setCtagQuery('');
+  }, [threadId]);
+
   // Hide content from people you've blocked
   const posts = allPosts.filter(p => !blocked[p.authorId]);
 
@@ -233,6 +263,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     return f ? f.id : null;
   };
   async function follow(other: any) {
+    if (needsAccount('follow people')) return;
     if (!other || !other.id || other.id === uid || isFollowing(other.id)) return;
     // Firestore rejects undefined values, which used to crash the app when a
     // profile had no name saved — always fall back to a real string.
@@ -269,6 +300,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     deleteDoc(doc(db, 'follows', id)).catch(() => setToast("Couldn't update — check your connection"));
 
   async function votePost(p: any, dir: number) {
+    if (needsAccount('vote on posts')) return;
     buzz();
     const cur = myVotes[p.id] || 0;
     let nv = 0, delta = 0;
@@ -277,6 +309,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     try { await updateDoc(doc(db, 'cposts', p.id), {votes: (p.votes || 0) + delta}); } catch (e) {}
   }
   async function addCommentTo(p: any, text: string, tags: {id: string; name: string}[] = []) {
+    if (needsAccount('comment')) return false;
     if (!text.trim() || !clean(text)) return false;
     const next = [...(p.comments || []), {authorId: uid, authorName: username, text: text.trim(), votes: 0, tags}];
     try {
@@ -304,6 +337,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   // Event RSVP (opt in / opt out)
   const isGoing = (ev: any) => (ev.attendees || []).some((a: any) => a.id === uid);
   async function toggleRsvp(ev: any) {
+    if (needsAccount('RSVP to events')) return;
     const attendees = isGoing(ev) ? (ev.attendees || []).filter((a: any) => a.id !== uid) : [...(ev.attendees || []), {id: uid, name: username}];
     await updateDoc(doc(db, 'cposts', ev.id), {attendees});
   }
@@ -336,13 +370,13 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       confirmText: 'Delete',
       destructive: true,
       onConfirm: () => {
+        setThreadId(null);
         deleteDoc(doc(db, 'cposts', p.id))
           .then(() => setToast('Post deleted'))
           .catch(() => setToast("Couldn't delete — check your connection"));
       },
     });
-    // The thread is a modal and can't show a dialog over itself — close it first
-    if (threadId === p.id) { setThreadId(null); setTimeout(ask, 350); } else { ask(); }
+    ask();
   }
   async function deleteComment(p: any, c: any) {
     if (c.authorId !== uid) return;
@@ -354,6 +388,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   const savedPostIds: string[] = (users.find(u => u.id === uid)?.savedPostIds) || [];
   const isPostSaved = (id: string) => savedPostIds.includes(id);
   function toggleSavePost(p: any) {
+    if (needsAccount('save posts')) return;
     buzz();
     const next = isPostSaved(p.id) ? savedPostIds.filter(x => x !== p.id) : [...savedPostIds, p.id];
     setDoc(doc(db, 'users', uid), {savedPostIds: next}, {merge: true});
@@ -373,6 +408,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
   // Repost — don't duplicate the post, just record who reposted it on the original
   function repost(p: any) {
+    if (needsAccount('repost')) return;
     buzz();
     const reposters: any[] = p.reposts || [];
     const mine = reposters.some((r: any) => r.id === uid);
@@ -416,6 +452,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
 
   // Choose what kind of thing to share
   function openComposerChooser(target: string, groupId?: string, sport?: string) {
+    if (needsAccount('post')) return;
     setChooser({target, groupId, sport});
   }
 
@@ -612,11 +649,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         {/* Discussion groups */}
         <Text style={styles.sectionLabel}>Discussion groups</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 16}}>
-          <TouchableOpacity style={styles.createGroupCard} onPress={() => setCreateOpen(true)}>
+          <TouchableOpacity style={styles.createGroupCard} onPress={() => { if (needsAccount("create a group")) return; setCreateOpen(true); }}>
             <Icon name="add" size={22} color={GOLD} />
             <Text style={styles.createGroupText}>Create group</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.joinGroupCard} onPress={() => setJoinOpen(true)}>
+          <TouchableOpacity style={styles.joinGroupCard} onPress={() => { if (needsAccount("join a group")) return; setJoinOpen(true); }}>
             <Icon name="key-outline" size={20} color="#185FA5" />
             <Text style={styles.joinGroupText}>Join with code</Text>
           </TouchableOpacity>
@@ -668,6 +705,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
     setGroupId(g.id);
   }
   async function joinGroup(g: any) {
+    if (needsAccount('join a group')) return;
     const roster = [...(g.roster || []), {id: uid, name: username}];
     await updateDoc(doc(db, 'groups', g.id), {roster});
   }
@@ -846,12 +884,10 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
   }
 
   // ---------- THREAD ----------
+  // Holds no state of its own, so it can be called as a function instead of
+  // rendered as <ThreadView /> — see the note where it's used.
   function ThreadView() {
     const p = thread; if (!p) return null;
-    const [ct, setCt] = useState('');
-    const [ctags, setCtags] = useState<{id: string; name: string}[]>([]);
-    const [ctagOpen, setCtagOpen] = useState(false);
-    const [ctagQuery, setCtagQuery] = useState('');
     const toggleCtag = (u: any) => setCtags(prev => prev.some(t => t.id === u.id) ? prev.filter(t => t.id !== u.id) : [...prev, {id: u.id, name: u.username}]);
     const ctagOptions = users.filter(u => u.id !== uid && !blocked[u.id] && (u.username || '').toLowerCase().includes(ctagQuery.trim().toLowerCase()));
     async function sendComment() {
@@ -966,10 +1002,9 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
               ))}
             </View>
           </ScrollView>
-          {/* Toast is a plain view, so it's safe to nest. A confirm dialog is a
-              modal and this screen remounts, so deletePost closes the thread
-              first and confirms at the root instead. */}
+          {/* Rendered inside the modal so they're visible above it */}
           <Toast message={toast} onHide={() => setToast('')} colors={c} />
+          <ConfirmModal data={confirm} onClose={() => setConfirm(null)} colors={c} />
         </View>
       </Modal>
     );
@@ -1227,7 +1262,7 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
           )}
           <Text style={[styles.body, {marginTop: 8}]}>{profile.bio || 'Add a bio to tell people about yourself and your sport.'}</Text>
           <View style={{flexDirection: 'row', gap: 10, marginTop: 14}}>
-            <TouchableOpacity style={[styles.smallBtn, styles.smallBtnAlt, {flex: 1}]} onPress={() => setEditOpen(true)}><Text style={styles.smallBtnText}>Edit profile</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.smallBtn, styles.smallBtnAlt, {flex: 1}]} onPress={() => { if (needsAccount("edit your profile")) return; setEditOpen(true); }}><Text style={styles.smallBtnText}>Edit profile</Text></TouchableOpacity>
             <TouchableOpacity style={[styles.smallBtn, styles.smallBtnGold, {flex: 1}]} onPress={() => openComposerChooser('community', undefined, profile.sport)}><Text style={[styles.smallBtnText, {color: '#fff'}]}>+ New post</Text></TouchableOpacity>
           </View>
           {joined.length > 0 && (
@@ -1433,10 +1468,11 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
         </View>
       ) : (tab === 'community' ? CommunityFeed() : ProfileScreen())}
 
-      {thread && <ThreadView />}
-      {/* Called as a function, not <GroupPage />. Declared inside this component,
-          it would be a new component type on every render, so React would tear
-          down and re-present the modal each time — which freezes iOS mid-dialog. */}
+      {/* Called as functions, not <ThreadView /> / <GroupPage />. Declared inside
+          this component, they would be a new component type on every render, so
+          React would tear down and re-present the modal each time — which loses
+          scroll position and freezes iOS mid-dialog. */}
+      {thread && ThreadView()}
       {group && GroupPage()}
       {composer && <Composer />}
       {createOpen && <CreateGroup />}
@@ -1557,8 +1593,12 @@ export default function CommunityApp({tab, username, uid, onInbox, onMenu, color
       {/* GroupPage and ThreadView render their own toast (a modal covers this one).
           The confirm dialog only needs skipping while the group page is up, since
           that screen renders its own — every other flow closes first. */}
-      {!group && !thread && <Toast message={toast} onHide={() => setToast('')} colors={c} />}
-      {!group && <ConfirmModal data={confirm} onClose={() => setConfirm(null)} colors={c} />}
+      {!group && !thread && (
+        <>
+          <Toast message={toast} onHide={() => setToast('')} colors={c} />
+          <ConfirmModal data={confirm} onClose={() => setConfirm(null)} colors={c} />
+        </>
+      )}
     </SafeAreaView>
   );
 }

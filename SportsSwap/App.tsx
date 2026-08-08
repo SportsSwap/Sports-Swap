@@ -20,7 +20,6 @@ import {
   Linking,
   RefreshControl,
   Animated,
-  Vibration,
 } from 'react-native';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { db, auth } from './firebase';
@@ -121,6 +120,13 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(true);
+  // Browsing without an account — required by App Store Guideline 5.1.1(v),
+  // since looking at listings and the community feed isn't account-based.
+  const [guest, setGuest] = useState(false);
+  // Empty string while browsing signed-out. Never used to write in that state —
+  // every write path goes through requireAccount() first.
+  const uid: string = (user && user.uid) || '';
+  const isGuest = !user;
   const [tab, setTab] = useState('community'); // community | market | profile
   const [dark, setDark] = useState(false);
   const [activeSport, setActiveSport] = useState('all');
@@ -202,9 +208,9 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Load listings from Firebase in real time (only once logged in)
+  // Load listings from Firebase in real time. Runs for signed-out browsers too,
+  // so the marketplace is viewable without an account.
   useEffect(() => {
-    if (!user) return;
     // Safety net: never leave the spinner running forever if Firestore is unreachable
     const failsafe = setTimeout(() => {
       setLoading(false);
@@ -224,12 +230,12 @@ export default function App() {
       setLoadError(true);
     });
     return () => { clearTimeout(failsafe); unsub(); };
-  }, [user, loadRetry]);
+  }, [loadRetry]);
 
   // Load my activity notifications (real time)
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, 'notifs'), where('toId', '==', user.uid));
+    const q = query(collection(db, 'notifs'), where('toId', '==', uid));
     const unsub = onSnapshot(q, snapshot => {
       const items = snapshot.docs.map(d => ({id: d.id, ...d.data()} as any));
       items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
@@ -255,7 +261,7 @@ export default function App() {
       snapshot.docs.forEach(d => { m[d.id] = d.data(); });
       setUsersMap(m);
       // Keep my own profile photo in sync if I change it in the Community tab
-      const me = m[user.uid];
+      const me = m[uid];
       if (me && me.avatarPhoto !== undefined) setAvatarPhoto(me.avatarPhoto);
     }, () => {});
     return () => unsub();
@@ -264,7 +270,7 @@ export default function App() {
   // Who I follow — so the Activity tab can offer "Follow back"
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, 'follows'), where('followerId', '==', user.uid));
+    const q = query(collection(db, 'follows'), where('followerId', '==', uid));
     const unsub = onSnapshot(q, snapshot => {
       setMyFollowing(new Set(snapshot.docs.map(d => (d.data() as any).followingId)));
     }, () => {});
@@ -274,7 +280,7 @@ export default function App() {
   // Load my conversations for the inbox (real time)
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, 'chats'), where('participants', 'array-contains', user.uid));
+    const q = query(collection(db, 'chats'), where('participants', 'array-contains', uid));
     const unsub = onSnapshot(q, snapshot => {
       const items = snapshot.docs.map(d => ({id: d.id, ...d.data()} as any));
       items.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
@@ -305,20 +311,36 @@ export default function App() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   function toggleDark() {
     const nv = !dark; setDark(nv);
-    if (user) setDoc(doc(db, 'users', user.uid), {darkMode: nv}, {merge: true});
+    if (user) setDoc(doc(db, 'users', uid), {darkMode: nv}, {merge: true});
+  }
+
+  // Anything that writes needs an account. Returns true if the caller should stop.
+  // Browsing, searching and reading are deliberately never gated.
+  function requireAccount(action: string) {
+    if (user) return false;
+    const ask = () => setConfirm({
+      title: 'Sign in to continue',
+      message: `You need a free account to ${action}. You can keep browsing without one.`,
+      confirmText: 'Sign in or join',
+      onConfirm: () => { setGuest(false); setTab('community'); },
+    });
+    // The dialog can't show above the listing sheet, so close that first
+    if (selectedListing) { setSelectedListing(null); setTimeout(ask, 350); } else { ask(); }
+    return true;
   }
 
   // Block / unblock — blocked people's posts, listings and chats are hidden for you instantly
   function blockUser(id: string, name: string) {
-    if (!user || id === user.uid) return;
+    if (requireAccount('block someone')) return;
+    if (!user || id === uid) return;
     const next = {...blockedUsers, [id]: name};
     setBlockedUsers(next);
-    setDoc(doc(db, 'users', user.uid), {blockedUsers: next}, {merge: true});
+    setDoc(doc(db, 'users', uid), {blockedUsers: next}, {merge: true});
     // Notify the developer that a user was blocked, so we can review the account
     addDoc(collection(db, 'reports'), {
       type: 'block', reason: 'User blocked another user',
       reportedId: id, reportedName: name,
-      reporterId: user.uid, reporterName: username,
+      reporterId: uid, reporterName: username,
       createdAt: serverTimestamp(),
     }).catch(() => {});
   }
@@ -326,7 +348,7 @@ export default function App() {
     const next = {...blockedUsers};
     delete next[id];
     setBlockedUsers(next);
-    if (user) setDoc(doc(db, 'users', user.uid), {blockedUsers: next}, {merge: true});
+    if (user) setDoc(doc(db, 'users', uid), {blockedUsers: next}, {merge: true});
   }
   const isBlocked = (id: string) => !!blockedUsers[id];
 
@@ -337,9 +359,10 @@ export default function App() {
     const avg = rs.reduce((sum, r) => sum + (r.stars || 0), 0) / rs.length;
     return {avg: Math.round(avg * 10) / 10, count: rs.length};
   }
-  const myRatingOf = (sellerId: string) => ratings.find(r => r.sellerId === sellerId && r.raterId === user?.uid);
+  const myRatingOf = (sellerId: string) => ratings.find(r => r.sellerId === sellerId && r.raterId === uid);
 
   function openRate(sellerId: string, sellerName: string) {
+    if (requireAccount('rate a seller')) return;
     const existing = myRatingOf(sellerId);
     setRateStars(existing?.stars || 0);
     setRateText(existing?.text || '');
@@ -358,9 +381,9 @@ export default function App() {
     // Close immediately and write in the background — never block the app on the network
     setRateTarget(null);
     setToast('Thanks — your rating helps other buyers');
-    setDoc(doc(db, 'ratings', `${target.id}_${user.uid}`), {
+    setDoc(doc(db, 'ratings', `${target.id}_${uid}`), {
       sellerId: target.id, sellerName: target.name,
-      raterId: user.uid, raterName: username,
+      raterId: uid, raterName: username,
       stars: rateStars, text: rateText.trim(),
       createdAt: serverTimestamp(),
     }).catch(() => setToast("Couldn't save rating — check your connection"));
@@ -374,18 +397,19 @@ export default function App() {
 
   // Follow someone back straight from the Activity tab
   function followBack(id: string, name: string) {
-    if (!id || id === user.uid || myFollowing.has(id)) return;
+    if (requireAccount('follow people')) return;
+    if (!id || id === uid || myFollowing.has(id)) return;
     const theirName = name || 'Someone';
     const myName = username || 'Someone';
     setToast(`Following ${theirName}`);
     addDoc(collection(db, 'follows'), {
-      followerId: user.uid, followerName: myName,
+      followerId: uid, followerName: myName,
       followingId: id, followingName: theirName,
       createdAt: serverTimestamp(),
     })
       .then(() => addDoc(collection(db, 'notifs'), {
         toId: id, kind: 'follow', read: false,
-        fromId: user.uid, fromName: myName,
+        fromId: uid, fromName: myName,
         text: `${myName} started following you`,
         createdAt: serverTimestamp(),
       }))
@@ -394,13 +418,14 @@ export default function App() {
 
   // Report content — saved to a 'reports' collection for review
   function reportContent(info: any) {
+    if (requireAccount('report content')) return;
     Alert.alert('Report', 'Why are you reporting this?', [
       {text: 'Cancel', style: 'cancel'},
       ...['Spam or scam', 'Harassment or bullying', 'Inappropriate content', 'Other'].map(reason => ({
         text: reason,
         onPress: async () => {
           await addDoc(collection(db, 'reports'), {
-            ...info, reason, reporterId: user.uid, reporterName: username, createdAt: serverTimestamp(),
+            ...info, reason, reporterId: uid, reporterName: username, createdAt: serverTimestamp(),
           });
           Alert.alert('Report sent', "Thanks — we'll review this within 24 hours.");
         },
@@ -418,10 +443,11 @@ export default function App() {
     );
   }
 
-  // Show auth screen if not logged in
-  if (!user) return <AuthScreen colors={colors} />;
+  // Show the auth screen unless they've chosen to look around first
+  if (!user && !guest) return <AuthScreen colors={colors} onGuest={() => setGuest(true)} />;
 
   async function postListing() {
+    if (requireAccount('list your gear')) return;
     if (!newTitle || !newPrice) return;
     if (hasProfanity(newTitle) || hasProfanity(newDesc)) {
       setToast("Please remove inappropriate language before posting");
@@ -436,7 +462,7 @@ export default function App() {
       loc: newLoc || 'Unknown',
       desc: newDesc.trim(),
       seller: username,
-      sellerId: user.uid,
+      sellerId: uid,
       bg: sport?.bg || '#EAF3DE',
       emoji: sport?.emoji || '🏆',
       photo: newPhotos[0] || null,
@@ -484,19 +510,19 @@ export default function App() {
   }
 
   // Hide conversations with people you've blocked
-  const visibleChats = inboxChats.filter(ch => !(ch.participants || []).some((p: string) => p !== user.uid && isBlocked(p)));
+  const visibleChats = inboxChats.filter(ch => !(ch.participants || []).some((p: string) => p !== uid && isBlocked(p)));
 
   // Unread: last message from someone else, newer than when I last opened the chat
   const isUnread = (ch: any) =>
-    ch.lastSenderId && ch.lastSenderId !== user.uid &&
-    (ch.updatedAt?.seconds || 0) > (ch.reads?.[user.uid]?.seconds || 0);
+    ch.lastSenderId && ch.lastSenderId !== uid &&
+    (ch.updatedAt?.seconds || 0) > (ch.reads?.[uid]?.seconds || 0);
   const unreadMsgs = visibleChats.filter(isUnread).length;
   const unreadNotifs = notifs.filter(n => !n.read).length;
   const unreadTotal = unreadMsgs + unreadNotifs;
 
   // Mark a chat as read when you open it
   const markChatRead = (chatId: string) =>
-    setDoc(doc(db, 'chats', chatId), {reads: {[user.uid]: serverTimestamp()}}, {merge: true});
+    setDoc(doc(db, 'chats', chatId), {reads: {[uid]: serverTimestamp()}}, {merge: true});
 
   // Mark all activity notifications as read (when the Activity tab is viewed)
   function markNotifsRead() {
@@ -518,7 +544,8 @@ export default function App() {
 
   // Start (or reopen) a real conversation with the seller of a listing
   function openChat(listing: any) {
-    const chatId = `${listing.id}_${user.uid}`;
+    if (requireAccount('message a seller')) return;
+    const chatId = `${listing.id}_${uid}`;
     // Write in the background — don't block the UI on the network
     setDoc(doc(db, 'chats', chatId), {
       listingId: listing.id,
@@ -528,9 +555,9 @@ export default function App() {
       listingBg: listing.bg,
       sellerId: listing.sellerId,
       sellerName: listing.seller,
-      buyerId: user.uid,
+      buyerId: uid,
       buyerName: username,
-      participants: [listing.sellerId, user.uid],
+      participants: [listing.sellerId, uid],
       updatedAt: serverTimestamp(),
     }, {merge: true});
     setSelectedListing(null);
@@ -551,8 +578,8 @@ export default function App() {
 
   // Open a conversation from the inbox
   function openChatFromInbox(chat: any) {
-    const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
-    const otherId = chat.sellerId === user.uid ? chat.buyerId : chat.sellerId;
+    const otherName = chat.sellerId === uid ? chat.buyerName : chat.sellerName;
+    const otherId = chat.sellerId === uid ? chat.buyerId : chat.sellerId;
     setActiveChat({id: chat.id, title: chat.listingTitle, price: chat.listingPrice, otherName, otherId});
     setChatOpen(true);
     setInboxOpen(false);
@@ -570,14 +597,14 @@ export default function App() {
     setInputText('');
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
-        senderId: user.uid,
+        senderId: uid,
         senderName: username,
         text: body,
         createdAt: serverTimestamp(),
       });
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: body,
-        lastSenderId: user.uid,
+        lastSenderId: uid,
         updatedAt: serverTimestamp(),
       });
     } catch (e) {
@@ -589,6 +616,7 @@ export default function App() {
 
   // ----- Offers (handled inside the chat) -----
   function startOffer(listing: any) {
+    if (requireAccount('make an offer')) return;
     setSelectedListing(null);
     setOfferAmount('');
     // Stagger so the detail modal finishes closing first (iOS modal-on-modal)
@@ -600,18 +628,18 @@ export default function App() {
     const listing = offerFor;
     setOfferFor(null);
     setToast('Offer sent');
-    const chatId = `${listing.id}_${user.uid}`;
+    const chatId = `${listing.id}_${uid}`;
     // Make sure the conversation exists, then post the offer as a special message
     setDoc(doc(db, 'chats', chatId), {
       listingId: listing.id, listingTitle: listing.title, listingPrice: listing.price,
       listingEmoji: listing.emoji, listingBg: listing.bg,
       sellerId: listing.sellerId, sellerName: listing.seller,
-      buyerId: user.uid, buyerName: username,
-      participants: [listing.sellerId, user.uid],
-      lastMessage: `Offer: $${amt}`, lastSenderId: user.uid, updatedAt: serverTimestamp(),
+      buyerId: uid, buyerName: username,
+      participants: [listing.sellerId, uid],
+      lastMessage: `Offer: $${amt}`, lastSenderId: uid, updatedAt: serverTimestamp(),
     }, {merge: true})
       .then(() => addDoc(collection(db, 'chats', chatId, 'messages'), {
-        senderId: user.uid, senderName: username,
+        senderId: uid, senderName: username,
         text: `Offered $${amt}`, offer: amt, offerStatus: 'pending', createdAt: serverTimestamp(),
       }))
       .catch(() => setToast("Couldn't send offer — check your connection"));
@@ -632,9 +660,9 @@ export default function App() {
     updateDoc(doc(db, 'chats', activeChat.id, 'messages', m.id), {offerStatus: status});
     const txt = accept ? `Accepted the offer of $${m.offer}` : `Declined the offer of $${m.offer}`;
     addDoc(collection(db, 'chats', activeChat.id, 'messages'), {
-      senderId: user.uid, senderName: username, text: txt, createdAt: serverTimestamp(),
+      senderId: uid, senderName: username, text: txt, createdAt: serverTimestamp(),
     });
-    updateDoc(doc(db, 'chats', activeChat.id), {lastMessage: txt, lastSenderId: user.uid, updatedAt: serverTimestamp()});
+    updateDoc(doc(db, 'chats', activeChat.id), {lastMessage: txt, lastSenderId: uid, updatedAt: serverTimestamp()});
     addDoc(collection(db, 'notifs'), {
       toId: m.senderId, kind: 'offer', read: false,
       text: `Your offer of $${m.offer} was ${status}`, createdAt: serverTimestamp(),
@@ -645,16 +673,16 @@ export default function App() {
   async function saveAvatar(emoji: string, color: string) {
     setAvatarEmoji(emoji);
     setAvatarColor(color);
-    await setDoc(doc(db, 'users', user.uid), {avatarEmoji: emoji, avatarColor: color}, {merge: true});
+    await setDoc(doc(db, 'users', uid), {avatarEmoji: emoji, avatarColor: color}, {merge: true});
   }
 
   function toggleSave(id: string) {
-    try { Vibration.vibrate(10); } catch (e) {}
+    if (requireAccount('save listings')) return;
     setSaved(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       // Persist favourites to the user's account
-      setDoc(doc(db, 'users', user.uid), {savedIds: Array.from(next)}, {merge: true});
+      setDoc(doc(db, 'users', uid), {savedIds: Array.from(next)}, {merge: true});
       return next;
     });
   }
@@ -684,7 +712,7 @@ export default function App() {
   // Shared card used by the main grid, My Listings and Saved
   function renderCard(item: any) {
     const cond = condLabel(item.cond);
-    const mine = item.sellerId === user.uid;
+    const mine = item.sellerId === uid;
     const st = sellerStats(item.sellerId);
     return (
       <TouchableOpacity style={styles.card} onPress={() => setSelectedListing(item)}>
@@ -722,7 +750,7 @@ export default function App() {
     );
   }
 
-  const myListings = listings.filter(l => l.sellerId === user.uid);
+  const myListings = listings.filter(l => l.sellerId === uid);
   const savedListings = listings.filter(l => saved.has(l.id));
 
   return (
@@ -731,20 +759,22 @@ export default function App() {
         <CommunityApp
           tab={tab}
           username={username}
-          uid={user.uid}
+          uid={uid}
           onInbox={() => setTab('inbox')}
           onMenu={() => setMenuOpen(true)}
           colors={colors}
           blocked={blockedUsers}
           onBlock={blockUser}
           onReport={reportContent}
+          isGuest={isGuest}
+          onSignIn={() => { setGuest(false); setTab('community'); }}
         />
       ) : tab === 'inbox' ? (
         <SafeAreaView style={styles.safe}>
           <View style={[styles.header, {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}]}>
             <Logo colors={colors} />
             <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}>
-              {avatarPhoto ? <Image source={{uri: avatarPhoto}} style={styles.avatarImg} /> : <Text style={styles.avatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>}
+              {avatarPhoto ? <Image source={{uri: avatarPhoto}} style={styles.avatarImg} /> : <Text style={styles.avatarText}>{isGuest ? "?" : (avatarEmoji || username.charAt(0).toUpperCase())}</Text>}
             </TouchableOpacity>
           </View>
 
@@ -767,7 +797,7 @@ export default function App() {
             ) : (
               <ScrollView contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 90}}>
                 {notifs.map(n => {
-                  const canFollowBack = n.kind === 'follow' && n.fromId && n.fromId !== user.uid;
+                  const canFollowBack = n.kind === 'follow' && n.fromId && n.fromId !== uid;
                   const alreadyFollowing = canFollowBack && myFollowing.has(n.fromId);
                   return (
                     <View key={n.id} style={[styles.notifRow, !n.read && styles.notifUnread]}>
@@ -799,8 +829,8 @@ export default function App() {
           ) : (
             <ScrollView contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 90}}>
               {visibleChats.map(chat => {
-                const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
-                const otherId = chat.sellerId === user.uid ? chat.buyerId : chat.sellerId;
+                const otherName = chat.sellerId === uid ? chat.buyerName : chat.sellerName;
+                const otherId = chat.sellerId === uid ? chat.buyerId : chat.sellerId;
                 const otherU = usersMap[otherId] || {};
                 const unread = isUnread(chat);
                 return (
@@ -837,11 +867,11 @@ export default function App() {
             onChangeText={setSearch}
           />
         </View>
-        <Btn style={styles.sellBtn} onPress={() => setPostOpen(true)}>
+        <Btn style={styles.sellBtn} onPress={() => { if (requireAccount('list your gear')) return; setPostOpen(true); }}>
           <Text style={styles.sellBtnText}>+ Sell</Text>
         </Btn>
         <TouchableOpacity onPress={() => setMenuOpen(true)} style={[styles.avatarBtn, {backgroundColor: avatarColor}]}>
-          {avatarPhoto ? <Image source={{uri: avatarPhoto}} style={styles.avatarImg} /> : <Text style={styles.avatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>}
+          {avatarPhoto ? <Image source={{uri: avatarPhoto}} style={styles.avatarImg} /> : <Text style={styles.avatarText}>{isGuest ? "?" : (avatarEmoji || username.charAt(0).toUpperCase())}</Text>}
         </TouchableOpacity>
       </View>
 
@@ -1053,13 +1083,13 @@ export default function App() {
                     return <Text style={styles.sellerRating}>{st ? `${st.avg} ★ · ${st.count} rating${st.count === 1 ? '' : 's'}` : 'New seller · no ratings yet'}</Text>;
                   })()}
                 </View>
-                {selectedListing?.sellerId !== user.uid && (
+                {selectedListing?.sellerId !== uid && (
                   <TouchableOpacity style={styles.rateBtn} onPress={() => openRate(selectedListing.sellerId, selectedListing.seller)}>
                     <Text style={styles.rateBtnText}>{myRatingOf(selectedListing?.sellerId) ? 'Edit rating' : 'Rate'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
-              {selectedListing?.sellerId === user.uid ? (
+              {selectedListing?.sellerId === uid ? (
                 <>
                   <TouchableOpacity style={[styles.cbtn, {marginBottom: 10}]} onPress={() => startEdit(selectedListing)}>
                     <Text style={styles.cbtnText}>Edit listing</Text>
@@ -1106,7 +1136,7 @@ export default function App() {
             <ScrollView>
               <View style={{alignItems: 'center', marginVertical: 16}}>
                 <View style={[styles.profileAvatar, {backgroundColor: avatarColor}]}>
-                  <Text style={styles.profileAvatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>
+                  <Text style={styles.profileAvatarText}>{isGuest ? "?" : (avatarEmoji || username.charAt(0).toUpperCase())}</Text>
                 </View>
                 <Text style={styles.profileName}>{username}</Text>
                 <Text style={styles.profileEmail}>{email}</Text>
@@ -1162,8 +1192,8 @@ export default function App() {
             ) : (
               <ScrollView>
                 {visibleChats.map(chat => {
-                  const otherName = chat.sellerId === user.uid ? chat.buyerName : chat.sellerName;
-                  const otherId = chat.sellerId === user.uid ? chat.buyerId : chat.sellerId;
+                  const otherName = chat.sellerId === uid ? chat.buyerName : chat.sellerName;
+                  const otherId = chat.sellerId === uid ? chat.buyerId : chat.sellerId;
                   const otherU = usersMap[otherId] || {};
                   return (
                     <TouchableOpacity key={chat.id} style={styles.convoRow} onPress={() => openChatFromInbox(chat)}>
@@ -1246,11 +1276,11 @@ export default function App() {
         {(() => {
           const otherU = usersMap[activeChat?.otherId] || {};
           const liveChat = inboxChats.find(ch => ch.id === activeChat?.id);
-          const iAmSeller = liveChat?.sellerId === user.uid;
+          const iAmSeller = liveChat?.sellerId === uid;
           const otherReadAt = liveChat?.reads?.[activeChat?.otherId]?.seconds || 0;
           // Index of my last message (for the read/sent receipt)
           let myLastIdx = -1;
-          chatMessages.forEach((m, i) => { if (m.senderId === user.uid) myLastIdx = i; });
+          chatMessages.forEach((m, i) => { if (m.senderId === uid) myLastIdx = i; });
           return (
         <SafeAreaView style={styles.chatFull}>
           <View style={styles.chatHeader}>
@@ -1283,7 +1313,7 @@ export default function App() {
               </Text>
             )}
             {chatMessages.map((m, i) => {
-              const mine = m.senderId === user.uid;
+              const mine = m.senderId === uid;
               const isMyLast = i === myLastIdx;
               const wasRead = otherReadAt && (otherReadAt >= (m.createdAt?.seconds || Infinity));
               return (
@@ -1380,28 +1410,37 @@ export default function App() {
           <View style={styles.menuCard}>
             <View style={styles.menuHeader}>
               <View style={[styles.menuAvatar, {backgroundColor: avatarColor}]}>
-                {avatarPhoto ? <Image source={{uri: avatarPhoto}} style={styles.menuAvatarImg} /> : <Text style={styles.menuAvatarText}>{avatarEmoji || username.charAt(0).toUpperCase()}</Text>}
+                {avatarPhoto ? <Image source={{uri: avatarPhoto}} style={styles.menuAvatarImg} /> : <Text style={styles.menuAvatarText}>{isGuest ? '?' : (avatarEmoji || username.charAt(0).toUpperCase())}</Text>}
               </View>
               <View style={{flex: 1}}>
-                <Text style={styles.menuName}>{username}</Text>
-                <Text style={styles.menuEmail} numberOfLines={1}>{email}</Text>
+                <Text style={styles.menuName}>{isGuest ? 'Browsing as a guest' : username}</Text>
+                <Text style={styles.menuEmail} numberOfLines={1}>{isGuest ? 'Sign in to post, message and save' : email}</Text>
               </View>
             </View>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('profile');}}>
-              <Text style={styles.menuItemText}>Profile</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('inbox');}}>
-              <Text style={styles.menuItemText}>Inbox</Text>
-              {unreadTotal > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{unreadTotal}</Text></View>)}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('market'); setMyListingsOpen(true);}}>
-              <Text style={styles.menuItemText}>My Listings</Text>
-              {myListings.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{myListings.length}</Text></View>)}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('market'); setSavedOpen(true);}}>
-              <Text style={styles.menuItemText}>Saved</Text>
-              {savedListings.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{savedListings.length}</Text></View>)}
-            </TouchableOpacity>
+            {isGuest && (
+              <TouchableOpacity style={[styles.cbtn, {margin: 12}]} onPress={() => { setMenuOpen(false); setGuest(false); }}>
+                <Text style={styles.cbtnText}>Sign in or create account</Text>
+              </TouchableOpacity>
+            )}
+            {!isGuest && (
+              <>
+                <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('profile');}}>
+                  <Text style={styles.menuItemText}>Profile</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('inbox');}}>
+                  <Text style={styles.menuItemText}>Inbox</Text>
+                  {unreadTotal > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{unreadTotal}</Text></View>)}
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('market'); setMyListingsOpen(true);}}>
+                  <Text style={styles.menuItemText}>My Listings</Text>
+                  {myListings.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{myListings.length}</Text></View>)}
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setTab('market'); setSavedOpen(true);}}>
+                  <Text style={styles.menuItemText}>Saved</Text>
+                  {savedListings.length > 0 && (<View style={styles.menuBadge}><Text style={styles.menuBadgeText}>{savedListings.length}</Text></View>)}
+                </TouchableOpacity>
+              </>
+            )}
             <View style={styles.menuDivider} />
             <TouchableOpacity style={styles.menuItem} onPress={toggleDark}>
               <Text style={styles.menuItemText}>Dark mode</Text>
@@ -1410,10 +1449,14 @@ export default function App() {
             <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); setSettingsOpen(true);}}>
               <Text style={styles.menuItemText}>Settings</Text>
             </TouchableOpacity>
-            <View style={styles.menuDivider} />
-            <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); signOut(auth);}}>
-              <Text style={[styles.menuItemText, {color: '#D4537E'}]}>Log out</Text>
-            </TouchableOpacity>
+            {!isGuest && (
+              <>
+                <View style={styles.menuDivider} />
+                <TouchableOpacity style={styles.menuItem} onPress={() => {setMenuOpen(false); signOut(auth); setGuest(false);}}>
+                  <Text style={[styles.menuItemText, {color: '#D4537E'}]}>Log out</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1461,8 +1504,10 @@ export default function App() {
           toggleDark={toggleDark}
           blockedUsers={Object.entries(blockedUsers).map(([id, name]) => ({id, name}))}
           onUnblock={unblockUser}
-          usernameChangedAt={usersMap[user.uid]?.usernameChangedAt}
+          usernameChangedAt={usersMap[uid]?.usernameChangedAt}
           onUsernameChanged={setUsername}
+          isGuest={isGuest}
+          onSignIn={() => { setSettingsOpen(false); setGuest(false); }}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -1481,7 +1526,11 @@ export default function App() {
           />
         )}
         {NAV_TABS.map(t => (
-          <TouchableOpacity key={t.id} style={styles.bnavBtn} onPress={() => { try { Vibration.vibrate(5); } catch (e) {} setTab(t.id); }}>
+          <TouchableOpacity key={t.id} style={styles.bnavBtn} onPress={() => {
+            // Inbox and Profile are account-based; browsing tabs stay open to everyone
+            if ((t.id === 'inbox' || t.id === 'profile') && requireAccount(t.id === 'inbox' ? 'use your inbox' : 'have a profile')) return;
+            setTab(t.id);
+          }}>
             <View>
               <Text style={[styles.bnavText, tab === t.id && styles.bnavActive]}>{t.label}</Text>
               {t.id === 'inbox' && unreadTotal > 0 && (
